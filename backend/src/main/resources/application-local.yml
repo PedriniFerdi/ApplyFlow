@@ -1,0 +1,7 @@
+spring:
+  config:
+    import:
+      # spring-boot:run is launched from backend/, so the ignored root .env is one level up.
+      # The second location also supports launching the application from the repository root.
+      - optional:file:../.env[.properties]
+      - optional:file:.env[.properties]

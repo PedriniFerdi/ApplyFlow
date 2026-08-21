@@ -1,0 +1,30 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: applyflow-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-applyflow}
+      POSTGRES_USER: ${POSTGRES_USER:-applyflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-applyflow}
+    ports:
+      - "5432:5432"
+    volumes:
+      - applyflow-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  mailpit:
+    image: axllent/mailpit:v1.30.0
+    container_name: applyflow-mailpit
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+volumes:
+  applyflow-postgres-data:
