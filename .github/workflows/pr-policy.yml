@@ -1,0 +1,55 @@
+name: PR Policy
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled, ready_for_review]
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+jobs:
+  validate:
+    name: Validate pull request policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Validate policy
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          branch_re='^(feat|fix|chore|docs|style|refactor|perf|test|build|ci|revert)/[a-z0-9._-]+$'
+          commit_re='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z0-9._-]+\))?!?: .+$'
+          [[ "$HEAD_BRANCH" =~ $branch_re ]] || { echo "Invalid branch: $HEAD_BRANCH"; exit 1; }
+          [[ "$PR_TITLE" =~ $commit_re ]] || { echo 'PR title must use Conventional Commits.'; exit 1; }
+
+          shopt -s nocasematch
+          issue_re='(^|[[:space:]])(Closes|Fixes|Resolves)[[:space:]]+#[0-9]+'
+          [[ "$PR_BODY" =~ $issue_re ]] || { echo 'PR body must close an issue.'; exit 1; }
+          issue_number="${BASH_REMATCH[0]##*#}"
+          shopt -u nocasematch
+
+          type_count="$(jq '[.pull_request.labels[].name | select(startswith("type:"))] | length' "$GITHUB_EVENT_PATH")"
+          [[ "$type_count" -eq 1 ]] || { echo "Expected one type:* label; found $type_count."; exit 1; }
+
+          approved="$(gh api -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "repos/$REPOSITORY/issues/$issue_number" \
+            --jq 'if has("pull_request") then 0 else [.labels[].name | select(. == "status:approved")] | length end')"
+          [[ "$approved" -eq 1 ]] || { echo "Issue #$issue_number is not approved."; exit 1; }
+
+          mapfile -t subjects < <(git log --format=%s "$BASE_SHA..$HEAD_SHA")
+          [[ "${#subjects[@]}" -gt 0 ]] || { echo 'No PR commits found.'; exit 1; }
+          for subject in "${subjects[@]}"; do
+            [[ "$subject" =~ $commit_re ]] || { echo "Invalid commit: $subject"; exit 1; }
+          done
+          echo 'PR policy passed.'
