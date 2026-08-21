@@ -1,12 +1,7 @@
 name: Backend CI
 
 on:
-  pull_request:
-    paths:
-      - backend/**
-      - compose.yaml
-      - .env.example
-      - .github/workflows/backend-ci.yml
+  pull_request: {}
   push:
     branches: [main]
     paths:
