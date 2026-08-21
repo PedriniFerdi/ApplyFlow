@@ -1,0 +1,48 @@
+name: Bug report
+description: Report a reproducible ApplyFlow problem.
+title: "bug: "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and impact
+      description: What happened, and who is affected?
+    validations: {required: true}
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Give the smallest reliable reproduction.
+      placeholder: "1. Go to ...\n2. Select ...\n3. Observe ..."
+    validations: {required: true}
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should happen instead?
+    validations: {required: true}
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser, OS, deployment, and relevant versions.
+    validations: {required: true}
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Supporting evidence
+      description: Add sanitized logs, screenshots, or links.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Note frequency, regressions, or workarounds.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched for duplicate issues.
+          required: true
+        - label: I removed credentials, tokens, and personal data.
+          required: true
