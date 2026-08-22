@@ -9,18 +9,22 @@ import { googleLoginUrl } from './api'
 import { AuthProvider } from './AuthProvider'
 
 const currentUser = { id: 7, fullName: 'Ferdi Example', email: 'ferdi@example.com', emailVerified: true, authenticationMethods: ['PASSWORD'] }
+const oauthReturnPathKey = 'applyflow:oauth-return-path'
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 }
 
-function renderRoute(route: string) {
+function renderRoute(route: string | { pathname: string; state: { from: string } }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[route]}><AuthProvider><App /></AuthProvider></MemoryRouter></QueryClientProvider>)
 }
 
 describe('authentication pages', () => {
-  beforeEach(() => clearCsrfToken())
+  beforeEach(() => {
+    clearCsrfToken()
+    sessionStorage.clear()
+  })
   afterEach(() => vi.restoreAllMocks())
 
   it('redirects an anonymous visitor from product routes to sign in', async () => {
@@ -179,17 +183,47 @@ describe('authentication pages', () => {
       if (url.includes('/applications?')) return json({ items: [], page: 0, size: 20, totalElements: 0, totalPages: 0 })
       return json([])
     })
+    sessionStorage.setItem(oauthReturnPathKey, JSON.stringify({ path: '/tracker', createdAt: Date.now() }))
     renderRoute('/sign-in')
     await user.type(await screen.findByLabelText('Email'), 'ferdi@example.com')
     await user.type(screen.getByLabelText('Password'), 'a-secure-password')
     await user.click(screen.getByLabelText('Remember me'))
     await user.click(screen.getByRole('button', { name: 'Sign in' }))
     expect(await screen.findByRole('heading', { name: 'No applications yet' })).toBeInTheDocument()
+    expect(sessionStorage.getItem(oauthReturnPathKey)).toBeNull()
     await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => input.toString().endsWith('/auth/login'))).toBe(true))
   })
 
-  it('finalizes a successful OAuth callback once while React Query deduplicates the session request', async () => {
+  it('offers generic Google retry and password recovery after a provider failure without exposing diagnostics', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({ detail: 'Authentication required' }, 401))
+    renderRoute('/sign-in?oauthError=oauth_failed&error_description=client-secret-leaked')
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('Google sign-in could not be completed.')
+    expect(screen.getByRole('link', { name: 'Try Google again' })).toHaveAttribute('href', googleLoginUrl)
+    expect(screen.getByLabelText('Email')).toBeInTheDocument()
+    expect(screen.getByLabelText('Password')).toBeInTheDocument()
+    expect(screen.queryByText(/client-secret-leaked/)).not.toBeInTheDocument()
+  })
+
+  it('only treats the allowlisted OAuth failure code as a provider failure', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({ detail: 'Authentication required' }, 401))
+    renderRoute('/sign-in?oauthError=access_denied')
+    expect(await screen.findByRole('link', { name: 'Continue with Google' })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('preserves a validated protected return path when Google sign-in starts', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({ detail: 'Authentication required' }, 401))
+    renderRoute({ pathname: '/sign-in', state: { from: '/tracker?view=active#interviews' } })
+    const googleLink = await screen.findByRole('link', { name: 'Continue with Google' })
+    googleLink.addEventListener('click', (event) => event.preventDefault(), { once: true })
+    fireEvent.click(googleLink)
+    expect(JSON.parse(sessionStorage.getItem(oauthReturnPathKey)!)).toMatchObject({ path: '/tracker?view=active#interviews' })
+  })
+
+  it('consumes a valid OAuth return intent once after callback success', async () => {
     let currentUserCalls = 0
+    sessionStorage.setItem(oauthReturnPathKey, JSON.stringify({ path: '/tracker?view=active#interviews', createdAt: Date.now() }))
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       if (input.toString().endsWith('/auth/me')) {
         currentUserCalls++
@@ -199,11 +233,35 @@ describe('authentication pages', () => {
       return json([])
     })
     renderRoute('/auth/callback')
-    expect(await screen.findByRole('heading', { name: 'No applications yet' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Tracker' })).toBeInTheDocument()
+    expect(sessionStorage.getItem(oauthReturnPathKey)).toBeNull()
     await waitFor(() => expect(currentUserCalls).toBe(1))
   })
 
-  it('finalizes a failed OAuth callback once while React Query deduplicates the session request', async () => {
+  it('rejects an external OAuth return intent and falls back to applications', async () => {
+    sessionStorage.setItem(oauthReturnPathKey, JSON.stringify({ path: '//evil.example/account', createdAt: Date.now() }))
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      if (input.toString().endsWith('/auth/me')) return json(currentUser)
+      if (input.toString().includes('/applications?')) return json({ items: [], page: 0, size: 20, totalElements: 0, totalPages: 0 })
+      return json([])
+    })
+    renderRoute('/auth/callback')
+    expect(await screen.findByRole('heading', { name: 'No applications yet' })).toBeInTheDocument()
+    expect(sessionStorage.getItem(oauthReturnPathKey)).toBeNull()
+  })
+
+  it('rejects a stale OAuth return intent and falls back to applications', async () => {
+    sessionStorage.setItem(oauthReturnPathKey, JSON.stringify({ path: '/tracker', createdAt: Date.now() - 11 * 60 * 1000 }))
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      if (input.toString().endsWith('/auth/me')) return json(currentUser)
+      if (input.toString().includes('/applications?')) return json({ items: [], page: 0, size: 20, totalElements: 0, totalPages: 0 })
+      return json([])
+    })
+    renderRoute('/auth/callback')
+    expect(await screen.findByRole('heading', { name: 'No applications yet' })).toBeInTheDocument()
+  })
+
+  it('offers runnable exits when the OAuth callback has no session', async () => {
     let currentUserCalls = 0
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       if (input.toString().endsWith('/auth/me')) {
@@ -213,7 +271,21 @@ describe('authentication pages', () => {
       return json([])
     })
     renderRoute('/auth/callback')
-    expect(await screen.findByRole('alert')).toHaveTextContent('Google sign-in completed without a valid ApplyFlow session.')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Google sign-in could not be completed.')
+    expect(screen.getByRole('link', { name: 'Try Google again' })).toHaveAttribute('href', googleLoginUrl)
+    expect(screen.getByRole('link', { name: 'Back to sign in' })).toHaveAttribute('href', '/sign-in')
     await waitFor(() => expect(currentUserCalls).toBe(1))
+  })
+
+  it('does not block OAuth callback success when session storage fails', async () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('Storage unavailable') })
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new Error('Storage unavailable') })
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      if (input.toString().endsWith('/auth/me')) return json(currentUser)
+      if (input.toString().includes('/applications?')) return json({ items: [], page: 0, size: 20, totalElements: 0, totalPages: 0 })
+      return json([])
+    })
+    renderRoute('/auth/callback')
+    expect(await screen.findByRole('heading', { name: 'No applications yet' })).toBeInTheDocument()
   })
 })

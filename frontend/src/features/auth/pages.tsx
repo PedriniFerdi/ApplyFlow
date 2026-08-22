@@ -64,10 +64,56 @@ function PasswordInput({ id, value, onChange, autoComplete }: {
   </div>
 }
 
-function GoogleButton() {
-  return <a href={googleLoginUrl} className="flex min-h-12 w-full items-center justify-center gap-3 rounded-[11px] border border-[#d6d6d3] bg-white px-4 text-sm font-semibold text-foreground shadow-xs transition hover:bg-[#f5f5f3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:translate-y-px">
+const OAUTH_RETURN_PATH_KEY = 'applyflow:oauth-return-path'
+const OAUTH_RETURN_PATH_MAX_AGE_MS = 10 * 60 * 1000
+
+function safeInternalPath(value: unknown) {
+  if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//')) return null
+  try {
+    const url = new URL(value, window.location.origin)
+    return url.origin === window.location.origin ? `${url.pathname}${url.search}${url.hash}` : null
+  } catch {
+    return null
+  }
+}
+
+function readOAuthReturnPath() {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(OAUTH_RETURN_PATH_KEY) ?? 'null') as { path?: unknown; createdAt?: unknown } | null
+    const now = Date.now()
+    if (!value || typeof value.createdAt !== 'number' || value.createdAt > now || now - value.createdAt > OAUTH_RETURN_PATH_MAX_AGE_MS) return null
+    return safeInternalPath(value.path)
+  } catch {
+    return null
+  }
+}
+
+function rememberOAuthReturnPath(path: string) {
+  try {
+    sessionStorage.setItem(OAUTH_RETURN_PATH_KEY, JSON.stringify({ path: safeInternalPath(path) ?? '/applications', createdAt: Date.now() }))
+  } catch {
+    // OAuth remains usable when browser storage is unavailable.
+  }
+}
+
+function clearOAuthReturnPath() {
+  try {
+    sessionStorage.removeItem(OAUTH_RETURN_PATH_KEY)
+  } catch {
+    // Authentication must not depend on browser storage.
+  }
+}
+
+function consumeOAuthReturnPath() {
+  const path = readOAuthReturnPath()
+  clearOAuthReturnPath()
+  return path ?? '/applications'
+}
+
+function GoogleButton({ children = 'Continue with Google', returnTo = '/applications' }: { children?: ReactNode; returnTo?: string }) {
+  return <a href={googleLoginUrl} onClick={() => rememberOAuthReturnPath(returnTo)} className="flex min-h-12 w-full items-center justify-center gap-3 rounded-[11px] border border-[#d6d6d3] bg-white px-4 text-sm font-semibold text-foreground shadow-xs transition hover:bg-[#f5f5f3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:translate-y-px">
     <span aria-hidden="true" className="grid h-5 w-5 place-items-center rounded-full border border-[#cfcfcb] text-[12px] font-bold">G</span>
-    Continue with Google
+    {children}
   </a>
 }
 
@@ -83,9 +129,7 @@ function MutationError({ error }: { error: unknown }) {
 
 function safeReturnPath(state: unknown) {
   const candidate = (state as { from?: unknown } | null)?.from
-  return typeof candidate === 'string' && candidate.startsWith('/') && !candidate.startsWith('//')
-    ? candidate
-    : '/applications'
+  return safeInternalPath(candidate) ?? '/applications'
 }
 
 function SuccessMessage({ title, children }: { title: string; children: ReactNode }) {
@@ -120,15 +164,24 @@ export function SignInPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
+  const oauthFailed = searchParams.get('oauthError') === 'oauth_failed'
+  const returnTo = oauthFailed ? readOAuthReturnPath() ?? '/applications' : safeReturnPath(location.state)
   const mutation = useMutation({
     mutationFn: () => login(email, password, rememberMe),
-    onSuccess: () => navigate(safeReturnPath(location.state), { replace: true }),
+    onSuccess: () => {
+      clearOAuthReturnPath()
+      navigate(returnTo, { replace: true })
+    },
   })
   if (user) return <Navigate to="/applications" replace />
 
   return <AuthLayout eyebrow="Welcome back" title="Sign in to ApplyFlow" description="Return to your applications, follow-ups, and next opportunities.">
-    <GoogleButton /><Divider />
-    {searchParams.has('oauthError') && <p role="alert" className="mb-4 rounded-[11px] border bg-[#f4f4f2] px-4 py-3 text-sm">Google sign-in could not be completed. Please try again.</p>}
+    {oauthFailed ? <div role="alert" className="rounded-[11px] border bg-[#f4f4f2] p-4 text-sm">
+      <p>Google sign-in could not be completed. No account details were changed.</p>
+      <div className="mt-4"><GoogleButton returnTo={returnTo}>Try Google again</GoogleButton></div>
+      <p className="mt-3 text-muted-foreground">Or sign in with your email and password below.</p>
+    </div> : <GoogleButton returnTo={returnTo} />}
+    <Divider />
     <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}>
       <div><Label htmlFor="email">Email</Label><Input id="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} className="min-h-12" required /></div>
       <div><div className="flex items-baseline justify-between gap-4"><Label htmlFor="password">Password</Label><Link to="/forgot-password" className="text-sm font-medium underline-offset-4 hover:underline">Forgot password?</Link></div><PasswordInput id="password" value={password} onChange={setPassword} autoComplete="current-password" /></div>
@@ -218,17 +271,22 @@ export function OAuthCallbackPage() {
   const navigate = useNavigate()
   const [failed, setFailed] = useState(false)
   const finalized = useRef(false)
+  const returnTo = readOAuthReturnPath() ?? '/applications'
   useEffect(() => {
     if (isLoading || finalized.current) return
     finalized.current = true
     if (user) {
-      navigate('/applications', { replace: true })
+      navigate(consumeOAuthReturnPath(), { replace: true })
     } else {
       setFailed(true)
     }
   }, [isLoading, navigate, user])
   return <AuthLayout eyebrow="Google sign-in" title="Completing sign in" description="ApplyFlow is establishing your secure session.">
-    {failed ? <MutationError error={new ApiProblem({ detail: 'Google sign-in completed without a valid ApplyFlow session.' }, 401)} /> : <div role="status" className="rounded-[14px] border p-5 text-sm text-muted-foreground">Finalizing your account…</div>}
+    {failed ? <div role="alert" className="space-y-4 rounded-[14px] border bg-[#f4f4f2] p-5 text-sm">
+      <p>Google sign-in could not be completed. Please try again or return to sign in.</p>
+      <GoogleButton returnTo={returnTo}>Try Google again</GoogleButton>
+      <Link to="/sign-in" state={{ from: returnTo }} className="inline-block font-semibold underline-offset-4 hover:underline">Back to sign in</Link>
+    </div> : <div role="status" className="rounded-[14px] border p-5 text-sm text-muted-foreground">Finalizing your account…</div>}
   </AuthLayout>
 }
 
