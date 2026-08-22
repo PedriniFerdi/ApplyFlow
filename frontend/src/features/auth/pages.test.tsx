@@ -33,6 +33,46 @@ describe('authentication pages', () => {
     expect(await screen.findByRole('heading', { name: 'Sign in to ApplyFlow' })).toBeInTheDocument()
   })
 
+  it('keeps protected content behind a labelled loading state during session bootstrap', async () => {
+    let resolveSession!: (response: Response) => void
+    vi.spyOn(globalThis, 'fetch').mockReturnValue(new Promise((resolve) => { resolveSession = resolve }))
+    renderRoute('/applications')
+    expect(screen.getByRole('status')).toHaveTextContent('Loading your session')
+    expect(screen.queryByRole('heading', { name: 'Applications' })).not.toBeInTheDocument()
+    resolveSession(json({ detail: 'Authentication required' }, 401))
+    expect(await screen.findByRole('heading', { name: 'Sign in to ApplyFlow' })).toBeInTheDocument()
+  })
+
+  it.each([
+    ['server failure', () => Promise.resolve(json({ detail: 'Unavailable' }, 503))],
+    ['network failure', () => Promise.reject(new TypeError('offline'))],
+  ])('shows retryable session unavailable UI without exposing protected content after %s', async (_, response) => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(response)
+    renderRoute('/applications')
+    expect(await screen.findByRole('alert')).toHaveTextContent('We couldn’t verify your session')
+    expect(screen.getByRole('button', { name: 'Retry session check' })).toBeEnabled()
+    expect(screen.queryByRole('heading', { name: 'Applications' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Sign in to ApplyFlow' })).not.toBeInTheDocument()
+  })
+
+  it('disables session retry while pending and recovers the protected route', async () => {
+    const user = userEvent.setup()
+    let resolveRetry!: (response: Response) => void
+    const retryResponse = new Promise<Response>((resolve) => { resolveRetry = resolve })
+    let sessionCalls = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input.toString()
+      if (url.endsWith('/auth/me')) return ++sessionCalls === 1 ? json({ detail: 'Unavailable' }, 503) : retryResponse
+      if (url.includes('/applications?')) return json({ items: [], page: 0, size: 20, totalElements: 0, totalPages: 0 })
+      return json([])
+    })
+    renderRoute('/applications')
+    await user.click(await screen.findByRole('button', { name: 'Retry session check' }))
+    expect(await screen.findByRole('button', { name: 'Checking session…' })).toBeDisabled()
+    resolveRetry(json(currentUser))
+    expect(await screen.findByRole('heading', { name: 'No applications yet' })).toBeInTheDocument()
+  })
+
   it('renders the required sign-up controls with Google and without GitHub', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({ detail: 'Authentication required' }, 401))
     renderRoute('/sign-up')
@@ -275,6 +315,39 @@ describe('authentication pages', () => {
     expect(screen.getByRole('link', { name: 'Try Google again' })).toHaveAttribute('href', googleLoginUrl)
     expect(screen.getByRole('link', { name: 'Back to sign in' })).toHaveAttribute('href', '/sign-in')
     await waitFor(() => expect(currentUserCalls).toBe(1))
+  })
+
+  it('keeps OAuth recovery intent through an outage and consumes it after session retry succeeds', async () => {
+    const user = userEvent.setup()
+    let sessionCalls = 0
+    sessionStorage.setItem(oauthReturnPathKey, JSON.stringify({ path: '/tracker?view=active#interviews', createdAt: Date.now() }))
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input.toString()
+      if (url.endsWith('/auth/me')) return ++sessionCalls === 1 ? json({ detail: 'Unavailable' }, 503) : json(currentUser)
+      if (url.includes('/applications?')) return json({ items: [], page: 0, size: 100, totalElements: 0, totalPages: 0 })
+      return json([])
+    })
+    renderRoute('/auth/callback')
+    expect(await screen.findByRole('alert')).toHaveTextContent('We couldn’t verify your session')
+    expect(screen.queryByRole('link', { name: 'Try Google again' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Retry session check' }))
+    expect(await screen.findByRole('heading', { name: 'Tracker' })).toBeInTheDocument()
+    expect(sessionStorage.getItem(oauthReturnPathKey)).toBeNull()
+  })
+
+  it('shows WU-1.2 OAuth recovery only after retry proves the callback is anonymous', async () => {
+    const user = userEvent.setup()
+    let sessionCalls = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      if (input.toString().endsWith('/auth/me')) return ++sessionCalls === 1
+        ? json({ detail: 'Unavailable' }, 503)
+        : json({ detail: 'Authentication required' }, 401)
+      return json([])
+    })
+    renderRoute('/auth/callback')
+    await user.click(await screen.findByRole('button', { name: 'Retry session check' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Google sign-in could not be completed.')
+    expect(screen.getByRole('link', { name: 'Try Google again' })).toHaveAttribute('href', googleLoginUrl)
   })
 
   it('does not block OAuth callback success when session storage fails', async () => {

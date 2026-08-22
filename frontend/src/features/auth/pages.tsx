@@ -267,22 +267,26 @@ export function VerifyEmailPage() {
 }
 
 export function OAuthCallbackPage() {
-  const { user, isLoading } = useAuth()
+  const session = useAuth()
   const navigate = useNavigate()
   const [failed, setFailed] = useState(false)
   const finalized = useRef(false)
   const returnTo = readOAuthReturnPath() ?? '/applications'
   useEffect(() => {
-    if (isLoading || finalized.current) return
+    if (session.status === 'loading' || session.status === 'unavailable' || finalized.current) return
     finalized.current = true
-    if (user) {
+    if (session.status === 'authenticated') {
       navigate(consumeOAuthReturnPath(), { replace: true })
     } else {
       setFailed(true)
     }
-  }, [isLoading, navigate, user])
+  }, [navigate, session.status])
   return <AuthLayout eyebrow="Google sign-in" title="Completing sign in" description="ApplyFlow is establishing your secure session.">
-    {failed ? <div role="alert" className="space-y-4 rounded-[14px] border bg-[#f4f4f2] p-5 text-sm">
+    {session.status === 'unavailable' ? <div role="alert" className="space-y-4 rounded-[14px] border bg-[#f4f4f2] p-5 text-sm">
+      <div><p className="font-semibold">We couldn’t verify your session</p><p className="mt-1 text-muted-foreground">ApplyFlow could not reach the session service. Try the session check again.</p></div>
+      <Button disabled={session.isRetrying} onClick={() => void session.retrySession()}>{session.isRetrying ? 'Checking session…' : 'Retry session check'}</Button>
+      <Link to="/sign-in" state={{ from: returnTo }} className="inline-block font-semibold underline-offset-4 hover:underline">Back to sign in</Link>
+    </div> : failed ? <div role="alert" className="space-y-4 rounded-[14px] border bg-[#f4f4f2] p-5 text-sm">
       <p>Google sign-in could not be completed. Please try again or return to sign in.</p>
       <GoogleButton returnTo={returnTo}>Try Google again</GoogleButton>
       <Link to="/sign-in" state={{ from: returnTo }} className="inline-block font-semibold underline-offset-4 hover:underline">Back to sign in</Link>

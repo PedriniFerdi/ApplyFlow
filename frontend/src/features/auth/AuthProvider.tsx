@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { ApiProblem } from '@/lib/api-client'
 import type { CurrentUser } from '@/types/api'
 import { getCurrentUser, signIn, signOut } from './api'
@@ -7,13 +7,26 @@ import { AuthContext, authQueryKey } from './auth-context'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient()
+  const [isRetrying, setIsRetrying] = useState(false)
+  const clearUserQueriesForIdentityChange = useCallback((nextUser: CurrentUser | null) => {
+    const previousUser = queryClient.getQueryData<CurrentUser | null>(authQueryKey)
+    if (previousUser !== undefined && (previousUser?.id ?? null) !== (nextUser?.id ?? null)) {
+      queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== 'auth' })
+    }
+  }, [queryClient])
+
   const currentUser = useQuery({
     queryKey: authQueryKey,
     queryFn: async () => {
       try {
-        return await getCurrentUser()
+        const user = await getCurrentUser()
+        clearUserQueriesForIdentityChange(user)
+        return user
       } catch (error) {
-        if (error instanceof ApiProblem && error.status === 401) return null
+        if (error instanceof ApiProblem && error.status === 401) {
+          clearUserQueriesForIdentityChange(null)
+          return null
+        }
         throw error
       }
     },
@@ -21,42 +34,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     staleTime: 60_000,
   })
 
-  const clearIdentityCache = useCallback((nextUser: CurrentUser | null) => {
-    queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== 'auth' })
+  const setIdentity = useCallback((nextUser: CurrentUser | null) => {
+    clearUserQueriesForIdentityChange(nextUser)
     queryClient.setQueryData(authQueryKey, nextUser)
-  }, [queryClient])
+  }, [clearUserQueriesForIdentityChange, queryClient])
 
   const login = useCallback(async (email: string, password: string, rememberMe: boolean) => {
     const user = await signIn(email, password, rememberMe)
-    clearIdentityCache(user)
+    setIdentity(user)
     return user
-  }, [clearIdentityCache])
+  }, [setIdentity])
 
   const logout = useCallback(async () => {
     try {
       await signOut()
     } finally {
-      clearIdentityCache(null)
+      setIdentity(null)
     }
-  }, [clearIdentityCache])
+  }, [setIdentity])
 
   const { refetch } = currentUser
-  const refresh = useCallback(async () => {
-    const result = await refetch()
-    return result.data ?? null
-  }, [refetch])
+  const retrySession = useCallback(async () => {
+    if (isRetrying) return
+    setIsRetrying(true)
+    try {
+      await refetch()
+    } finally {
+      setIsRetrying(false)
+    }
+  }, [isRetrying, refetch])
 
   useEffect(() => {
-    const onUnauthorized = () => clearIdentityCache(null)
+    const onUnauthorized = () => setIdentity(null)
     window.addEventListener('applyflow:unauthorized', onUnauthorized)
     return () => window.removeEventListener('applyflow:unauthorized', onUnauthorized)
-  }, [clearIdentityCache])
+  }, [setIdentity])
+
+  const session = currentUser.isPending
+    ? isRetrying
+      ? { status: 'unavailable', user: null, isRetrying: true } as const
+      : { status: 'loading', user: null } as const
+    : currentUser.isError
+      ? { status: 'unavailable', user: null, isRetrying } as const
+      : currentUser.data
+        ? { status: 'authenticated', user: currentUser.data } as const
+        : { status: 'anonymous', user: null } as const
 
   return <AuthContext.Provider value={{
-    user: currentUser.data ?? null,
-    isLoading: currentUser.isLoading,
+    ...session,
     login,
     logout,
-    refresh,
+    retrySession,
   }}>{children}</AuthContext.Provider>
 }

@@ -1,6 +1,7 @@
 import { lazy, Suspense, type ReactNode } from 'react'
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 import { AppShell } from '@/components/AppShell'
+import { Button } from '@/components/ui'
 import { useAuth } from '@/features/auth/auth-context'
 import { loadApplicationPages, loadAuthPages, loadNewApplicationPage } from '@/route-loaders'
 
@@ -27,10 +28,11 @@ function LazyRoute({ children }: { children: ReactNode }) {
 }
 
 function RequireAuthentication() {
-  const { user, isLoading } = useAuth()
+  const session = useAuth()
   const location = useLocation()
-  if (isLoading) return <main className="grid min-h-[100dvh] place-items-center bg-[#f3f3f2]"><div role="status" className="w-56 space-y-3"><span className="sr-only">Loading your session</span><span className="block h-3 animate-pulse rounded-full bg-[#d7d7d4]" /><span className="block h-3 w-2/3 animate-pulse rounded-full bg-[#dfdfdc]" /></div></main>
-  if (!user) return <Navigate to="/sign-in" state={{ from: `${location.pathname}${location.search}` }} replace />
+  if (session.status === 'loading') return <main className="grid min-h-[100dvh] place-items-center bg-[#f3f3f2]"><div role="status" className="w-56 space-y-3"><span className="sr-only">Loading your session</span><span className="block h-3 animate-pulse rounded-full bg-[#d7d7d4]" /><span className="block h-3 w-2/3 animate-pulse rounded-full bg-[#dfdfdc]" /></div></main>
+  if (session.status === 'unavailable') return <main className="grid min-h-[100dvh] place-items-center bg-[#f3f3f2] p-5"><div role="alert" className="w-full max-w-md rounded-[15px] border bg-white p-6 shadow-sm"><h1 className="text-xl font-semibold">We couldn’t verify your session</h1><p className="mt-2 text-sm leading-6 text-muted-foreground">ApplyFlow could not reach the session service. Your account data has not been shown.</p><Button className="mt-5" disabled={session.isRetrying} onClick={() => void session.retrySession()}>{session.isRetrying ? 'Checking session…' : 'Retry session check'}</Button></div></main>
+  if (session.status === 'anonymous') return <Navigate to="/sign-in" state={{ from: `${location.pathname}${location.search}` }} replace />
   return <Outlet />
 }
 
