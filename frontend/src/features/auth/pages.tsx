@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query'
 import { Check, Eye, EyeOff, LockKeyhole, Mail } from 'lucide-react'
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import landscape from '@/assets/applyflow-landscape.png'
 import { Button, FieldError, Input, Label } from '@/components/ui'
@@ -12,6 +12,7 @@ import {
   googleLoginUrl,
   register,
   requestPasswordSetup,
+  resendVerification,
   resetPassword,
   verifyEmail,
 } from './api'
@@ -94,6 +95,23 @@ function SuccessMessage({ title, children }: { title: string; children: ReactNod
   </div>
 }
 
+function VerificationResendForm({ initialEmail = '' }: { initialEmail?: string }) {
+  const emailId = useId()
+  const [email, setEmail] = useState(initialEmail)
+  const mutation = useMutation({ mutationFn: () => resendVerification(email) })
+
+  if (mutation.isSuccess) {
+    return <SuccessMessage title="Check your inbox"><p>{mutation.data.message}</p></SuccessMessage>
+  }
+
+  return <form className="space-y-4 rounded-[14px] border bg-[#fafaf8] p-5" onSubmit={(event) => { event.preventDefault(); if (!mutation.isPending) mutation.mutate() }}>
+    <div><p className="font-semibold">Need a new verification link?</p><p className="mt-1 text-sm leading-6 text-muted-foreground">Enter your email and we’ll send the next step if the account is eligible.</p></div>
+    <div><Label htmlFor={emailId}>Email</Label><Input id={emailId} type="email" autoComplete="email" value={email} onChange={(event) => { setEmail(event.target.value); if (!mutation.isPending) mutation.reset() }} className="min-h-12" disabled={mutation.isPending} required /></div>
+    <MutationError error={mutation.error} />
+    <Button type="submit" disabled={mutation.isPending} className="min-h-12 w-full">{mutation.isPending ? 'Sending…' : 'Resend verification email'}</Button>
+  </form>
+}
+
 export function SignInPage() {
   const { user, login } = useAuth()
   const navigate = useNavigate()
@@ -118,6 +136,7 @@ export function SignInPage() {
       <MutationError error={mutation.error} />
       <Button type="submit" disabled={mutation.isPending} className="min-h-12 w-full">{mutation.isPending ? 'Signing in…' : 'Sign in'}</Button>
     </form>
+    <p className="mt-4 text-center text-sm text-muted-foreground">Still waiting for verification? <Link to="/verify-email" className="font-semibold text-foreground underline-offset-4 hover:underline">Resend verification email</Link></p>
     <p className="mt-7 text-center text-sm text-muted-foreground">New to ApplyFlow? <Link to="/sign-up" className="font-semibold text-foreground underline-offset-4 hover:underline">Create an account</Link></p>
   </AuthLayout>
 }
@@ -131,7 +150,7 @@ export function SignUpPage() {
 
   if (user) return <Navigate to="/applications" replace />
   return <AuthLayout eyebrow="Your account" title="Create your space" description="Build a secure, private home for every application and decision in your search.">
-    {mutation.isSuccess ? <SuccessMessage title="Check your inbox"><p>We sent the next step to <strong className="text-foreground">{values.email}</strong>. Verify your email before signing in.</p><Link to="/sign-in" className="mt-4 inline-block font-semibold text-foreground underline-offset-4 hover:underline">Back to sign in</Link></SuccessMessage> : <>
+    {mutation.isSuccess ? <div className="space-y-5"><SuccessMessage title="Check your inbox"><p>We sent the next step to <strong className="text-foreground">{values.email}</strong>. Verify your email before signing in.</p></SuccessMessage><VerificationResendForm initialEmail={values.email} /><Link to="/sign-in" className="inline-block font-semibold text-foreground underline-offset-4 hover:underline">Back to sign in</Link></div> : <>
       <GoogleButton /><Divider />
       <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); if (!mismatch) mutation.mutate() }}>
         <div><Label htmlFor="fullName">Full name</Label><Input id="fullName" autoComplete="name" value={values.fullName} onChange={(event) => set('fullName')(event.target.value)} className="min-h-12" required /></div>
@@ -187,8 +206,10 @@ export function VerifyEmailPage() {
       mutation.mutate()
     }
   }, [token, mutation])
+  const linkError = token ? mutation.error : new ApiProblem({ detail: 'This verification link is missing its token.' }, 400)
+  const needsRecovery = !token || mutation.isError
   return <AuthLayout eyebrow="Email verification" title="Confirming your email" description="We’re validating this one-time link and preparing your account.">
-    {!token ? <MutationError error={new ApiProblem({ detail: 'This verification link is missing its token.' }, 400)} /> : mutation.isPending || mutation.isIdle ? <div role="status" className="rounded-[14px] border p-5 text-sm text-muted-foreground">Verifying secure link…</div> : mutation.isSuccess ? <SuccessMessage title="Email verified"><p>Your account is ready.</p><Link to="/sign-in" className="mt-4 inline-block font-semibold text-foreground underline-offset-4 hover:underline">Continue to sign in</Link></SuccessMessage> : <MutationError error={mutation.error} />}
+    {needsRecovery ? <div className="space-y-5"><MutationError error={linkError} /><VerificationResendForm /><Link to="/sign-in" className="inline-block text-sm font-semibold underline-offset-4 hover:underline">Back to sign in</Link></div> : mutation.isPending || mutation.isIdle ? <div role="status" className="rounded-[14px] border p-5 text-sm text-muted-foreground">Verifying secure link…</div> : <SuccessMessage title="Email verified"><p>Your account is ready.</p><Link to="/sign-in" className="mt-4 inline-block font-semibold text-foreground underline-offset-4 hover:underline">Continue to sign in</Link></SuccessMessage>}
   </AuthLayout>
 }
 

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -41,7 +41,7 @@ describe('authentication pages', () => {
     expect(screen.queryByText(/github/i)).not.toBeInTheDocument()
   })
 
-  it('submits registration after obtaining a CSRF token and shows the generic outcome', async () => {
+  it('resends verification from the registration success state using the submitted email', async () => {
     const user = userEvent.setup()
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = input.toString()
@@ -50,6 +50,12 @@ describe('authentication pages', () => {
       if (url.endsWith('/auth/register')) {
         expect(new Headers(init?.headers).get('X-CSRF-TOKEN')).toBe('csrf-token')
         return json({ message: 'Generic response' }, 202)
+      }
+      if (url.endsWith('/auth/email-verification/resend')) {
+        expect(init?.method).toBe('POST')
+        expect(new Headers(init?.headers).get('X-CSRF-TOKEN')).toBe('csrf-token')
+        expect(JSON.parse(String(init?.body))).toEqual({ email: 'ferdi@example.com' })
+        return json({ message: 'If an eligible account exists, an email will arrive with the next step.' }, 202)
       }
       return json([])
     })
@@ -60,7 +66,102 @@ describe('authentication pages', () => {
     await user.type(screen.getByLabelText('Confirm password'), 'a-secure-password')
     await user.click(screen.getByRole('button', { name: 'Create account' }))
     expect(await screen.findByText('Check your inbox')).toBeInTheDocument()
+    expect(screen.getByLabelText('Email')).toHaveValue('ferdi@example.com')
+    await user.click(screen.getByRole('button', { name: 'Resend verification email' }))
+    expect(await screen.findByText('If an eligible account exists, an email will arrive with the next step.')).toBeInTheDocument()
     expect(fetchMock.mock.calls.some(([input]) => input.toString().endsWith('/auth/register'))).toBe(true)
+  })
+
+  it('offers verification resend and sign-in exits when the link token is missing', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input.toString()
+      if (url.endsWith('/auth/me')) return json({ detail: 'Authentication required' }, 401)
+      if (url.endsWith('/auth/csrf')) return json({ token: 'csrf-token', headerName: 'X-CSRF-TOKEN' })
+      if (url.endsWith('/auth/email-verification/resend')) return json({ message: 'Generic recovery response' }, 202)
+      return json([])
+    })
+    renderRoute('/verify-email')
+    expect(await screen.findByRole('alert')).toHaveTextContent('This verification link is missing its token.')
+    await user.type(screen.getByLabelText('Email'), 'pending@example.com')
+    await user.click(screen.getByRole('button', { name: 'Resend verification email' }))
+    expect(await screen.findByText('Generic recovery response')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Back to sign in' })).toHaveAttribute('href', '/sign-in')
+    expect(fetchMock.mock.calls.some(([input]) => input.toString().endsWith('/auth/email-verification/resend'))).toBe(true)
+  })
+
+  it('prevents editing or resubmitting while verification resend is pending', async () => {
+    const user = userEvent.setup()
+    let resolveResend!: (response: Response) => void
+    const resendResponse = new Promise<Response>((resolve) => { resolveResend = resolve })
+    let resendCalls = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input.toString()
+      if (url.endsWith('/auth/me')) return json({ detail: 'Authentication required' }, 401)
+      if (url.endsWith('/auth/csrf')) return json({ token: 'csrf-token', headerName: 'X-CSRF-TOKEN' })
+      if (url.endsWith('/auth/email-verification/resend')) {
+        resendCalls++
+        return resendResponse
+      }
+      return json([])
+    })
+    renderRoute('/verify-email')
+    const email = await screen.findByLabelText('Email')
+    await user.type(email, 'pending@example.com')
+    await user.click(screen.getByRole('button', { name: 'Resend verification email' }))
+    await waitFor(() => expect(resendCalls).toBe(1))
+    expect(email).toBeDisabled()
+    fireEvent.change(email, { target: { value: 'second@example.com' } })
+    fireEvent.submit(email.closest('form')!)
+    expect(resendCalls).toBe(1)
+    resolveResend(json({ message: 'Generic recovery response' }, 202))
+    expect(await screen.findByText('Generic recovery response')).toBeInTheDocument()
+  })
+
+  it('offers the same resend recovery after an invalid or expired verification link', async () => {
+    const user = userEvent.setup()
+    let confirmationCalls = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input.toString()
+      if (url.endsWith('/auth/me')) return json({ detail: 'Authentication required' }, 401)
+      if (url.endsWith('/auth/csrf')) return json({ token: 'csrf-token', headerName: 'X-CSRF-TOKEN' })
+      if (url.endsWith('/auth/email-verification/confirm')) {
+        confirmationCalls++
+        return json({ detail: 'The account link is invalid or has expired' }, 400)
+      }
+      if (url.endsWith('/auth/email-verification/resend')) return json({ message: 'Generic recovery response' }, 202)
+      return json([])
+    })
+    renderRoute('/verify-email?token=used-token')
+    expect(await screen.findByRole('alert')).toHaveTextContent('The account link is invalid or has expired')
+    await user.type(screen.getByLabelText('Email'), 'pending@example.com')
+    await user.click(screen.getByRole('button', { name: 'Resend verification email' }))
+    expect(await screen.findByText('Generic recovery response')).toBeInTheDocument()
+    expect(confirmationCalls).toBe(1)
+  })
+
+  it('exposes verification resend from sign in', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({ detail: 'Authentication required' }, 401))
+    renderRoute('/sign-in')
+    expect(await screen.findByRole('link', { name: 'Resend verification email' })).toHaveAttribute('href', '/verify-email')
+  })
+
+  it('confirms a valid verification token once and offers sign in', async () => {
+    let confirmationCalls = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input.toString()
+      if (url.endsWith('/auth/me')) return json({ detail: 'Authentication required' }, 401)
+      if (url.endsWith('/auth/csrf')) return json({ token: 'csrf-token', headerName: 'X-CSRF-TOKEN' })
+      if (url.endsWith('/auth/email-verification/confirm')) {
+        confirmationCalls++
+        return new Response(null, { status: 204 })
+      }
+      return json([])
+    })
+    renderRoute('/verify-email?token=valid-token')
+    expect(await screen.findByText('Email verified')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Continue to sign in' })).toHaveAttribute('href', '/sign-in')
+    expect(confirmationCalls).toBe(1)
   })
 
   it('sends form login with remember me and enters the protected application', async () => {
