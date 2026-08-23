@@ -118,7 +118,7 @@ function GoogleButton({ children = 'Continue with Google', returnTo = '/applicat
 }
 
 function Divider() {
-  return <div className="my-6 flex items-center gap-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#858582]"><span className="h-px flex-1 bg-border" /><span>or</span><span className="h-px flex-1 bg-border" /></div>
+  return <div className="my-6 flex items-center gap-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#70706d]"><span className="h-px flex-1 bg-border" /><span>or</span><span className="h-px flex-1 bg-border" /></div>
 }
 
 function MutationError({ error }: { error: unknown }) {

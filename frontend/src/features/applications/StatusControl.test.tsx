@@ -29,6 +29,7 @@ describe('StatusControl', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
     const request = fetchMock.mock.calls[1][1] as RequestInit
     expect(JSON.parse(String(request.body))).toEqual({ status: 'APPLIED', appliedDate: '2026-08-01' })
+    expect(await screen.findByRole('status')).toHaveTextContent('Status changed to Applied.')
   })
 
   it('shows a safe server error when a transition fails', async () => {

@@ -21,9 +21,9 @@ function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 }
 
-function renderForm(onSubmit = vi.fn()) {
+function renderForm(onSubmit = vi.fn(), enableJobUrlImport = true) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-  return { onSubmit, ...render(<QueryClientProvider client={client}><ApplicationForm enableJobUrlImport submitLabel="Save application" pending={false} onSubmit={onSubmit} /></QueryClientProvider>) }
+  return { onSubmit, ...render(<QueryClientProvider client={client}><ApplicationForm enableJobUrlImport={enableJobUrlImport} submitLabel="Save application" pending={false} onSubmit={onSubmit} /></QueryClientProvider>) }
 }
 
 function catalogResponse(url: string) {
@@ -62,8 +62,10 @@ describe('new application URL import', () => {
     const { onSubmit } = renderForm()
 
     const companyName = screen.getByRole('combobox', { name: 'Company name' })
+    expect(companyName).not.toHaveAttribute('aria-controls')
     await user.type(companyName, 'Acme')
     await screen.findByRole('option', { name: /Acme/ })
+    expect(companyName).toHaveAttribute('aria-controls', 'company-options')
     await user.keyboard('{ArrowDown}{Enter}')
     await user.type(screen.getByRole('textbox', { name: 'Position title' }), 'Backend Engineer')
     await user.selectOptions(screen.getByRole('combobox', { name: 'Source' }), '1')
@@ -72,6 +74,20 @@ describe('new application URL import', () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ companyId: 7 })))
     expect(onSubmit.mock.calls[0][0].newCompany).toBeUndefined()
     expect(screen.getByText('Using an existing company.')).toBeInTheDocument()
+  })
+
+  it('exposes the selected company-entry mode programmatically', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => catalogResponse(input.toString()))
+    renderForm(vi.fn(), false)
+
+    const existing = screen.getByRole('button', { name: 'Existing company' })
+    const createNew = screen.getByRole('button', { name: 'New company' })
+    expect(existing).toHaveAttribute('aria-pressed', 'true')
+    expect(createNew).toHaveAttribute('aria-pressed', 'false')
+    await user.click(createNew)
+    expect(existing).toHaveAttribute('aria-pressed', 'false')
+    expect(createNew).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('uses a free Company name as a new-company payload without a second selector', async () => {

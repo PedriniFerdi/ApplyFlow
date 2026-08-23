@@ -24,6 +24,7 @@ export function StatusControl({ id, status, appliedDate, compact = false }: { id
     <div className={compact ? 'space-y-2' : 'flex flex-wrap items-end gap-3'}><div className={compact ? '' : 'min-w-52 flex-1'}><Label htmlFor={`status-${id}`}>Status</Label><Select id={`status-${id}`} value={selected} onChange={(event) => { setSelected(event.target.value as ApplicationStatus); mutation.reset() }} disabled={mutation.isPending}>{APPLICATION_STATUSES.map((item) => <option key={item} value={item}>{STATUS_LABELS[item]}</option>)}</Select></div>
     {needsDate && <div className={compact ? '' : 'min-w-44'}><Label htmlFor={`status-date-${id}`}>Applied date</Label><Input id={`status-date-${id}`} type="date" max={new Date().toISOString().slice(0, 10)} value={date} onChange={(event) => setDate(event.target.value)} /></div>}
     <Button onClick={() => void save()} disabled={mutation.isPending || selected === status || (needsDate && !date)}>{mutation.isPending ? 'Saving…' : 'Update'}</Button></div>
+    {mutation.isSuccess && <p role="status" aria-atomic="true" className="text-sm text-muted-foreground">Status changed to {STATUS_LABELS[selected]}.</p>}
     {mutation.error && <ErrorPanel title="Status was not changed" message={mutation.error instanceof ApiProblem ? mutation.error.message : 'The status could not be changed.'} />}
   </div>
 }

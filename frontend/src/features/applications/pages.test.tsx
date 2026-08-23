@@ -90,6 +90,7 @@ describe('application pages', () => {
     renderRoute('/applications')
     expect(await screen.findByRole('heading', { name: 'No applications yet' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Add application' })).toHaveAttribute('href', '/applications/new')
+    expect(screen.getByRole('group', { name: 'Statuses' })).toBeInTheDocument()
   })
 
   it('focuses the committed destination heading after keyboard navigation', async () => {
@@ -124,6 +125,9 @@ describe('application pages', () => {
     renderRoute('/applications')
 
     const next = await screen.findByRole('button', { name: 'Next' })
+    expect(screen.getByRole('navigation', { name: 'Application results pages' })).toBeInTheDocument()
+    expect(screen.getByText('Page 1 of 2')).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByText('Showing 21 applications. Page 1 of 2.')).toHaveAttribute('role', 'status')
     await user.click(next)
     expect(next).toHaveFocus()
     expect(next).not.toBeDisabled()
@@ -133,6 +137,7 @@ describe('application pages', () => {
 
     resolveNextPage(json({ items: [summary(2, 'APPLIED', 'Second')], page: 1, size: 20, totalElements: 21, totalPages: 2 }))
     expect(await screen.findByText('Second company 2')).toBeInTheDocument()
+    expect(screen.getByText('Showing 21 applications. Page 2 of 2.')).toHaveAttribute('role', 'status')
     expect(next).toHaveFocus()
     expect(next).not.toBeDisabled()
     expect(next).toHaveAttribute('aria-disabled', 'true')

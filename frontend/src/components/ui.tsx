@@ -19,7 +19,7 @@ export function Label({ children, htmlFor }: { children: ReactNode; htmlFor?: st
 }
 
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={cn('min-h-11 w-full rounded-[10px] border bg-background px-3 text-sm shadow-xs outline-none placeholder:text-[#777] focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-muted', className)} {...props} />
+  return <input className={cn('min-h-11 w-full rounded-[10px] border bg-background px-3 text-sm shadow-xs outline-none placeholder:text-[#70706d] focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:bg-muted', className)} {...props} />
 }
 
 export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
@@ -27,7 +27,7 @@ export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectE
 }
 
 export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea className={cn('min-h-28 w-full rounded-[10px] border bg-background px-3 py-2 text-sm shadow-xs outline-none placeholder:text-[#777] focus:border-primary focus:ring-2 focus:ring-primary/10', className)} {...props} />
+  return <textarea className={cn('min-h-28 w-full rounded-[10px] border bg-background px-3 py-2 text-sm shadow-xs outline-none placeholder:text-[#70706d] focus:border-primary focus:ring-2 focus:ring-primary/10', className)} {...props} />
 }
 
 export function ErrorPanel({ title = 'Something went wrong', message, onRetry }: { title?: string; message: string; onRetry?: () => void }) {

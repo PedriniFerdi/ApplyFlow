@@ -37,7 +37,7 @@ function TimeSeries({ data }: { data: ApplicationsOverTime }) {
       <polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.25" vectorEffect="non-scaling-stroke" />
       {points.split(' ').map((point) => { const [cx, cy] = point.split(','); return <circle key={point} cx={cx} cy={cy} r="1.2" fill="currentColor" /> })}
     </svg>
-    <div className="mt-4 overflow-x-auto"><table className="w-full min-w-80 text-left text-sm"><caption className="sr-only">All-time applications grouped by {data.period.toLowerCase()}</caption><thead><tr className="border-b"><th scope="col" className="py-2 font-medium">Period start</th><th scope="col" className="py-2 text-right font-medium">Applications</th></tr></thead><tbody>{data.buckets.map((bucket) => <tr key={bucket.startDate} className="border-b last:border-0"><th scope="row" className="py-2 font-normal"><time dateTime={bucket.startDate}>{formatBucketDate(bucket.startDate)}</time></th><td className="py-2 text-right tabular-nums">{bucket.applicationCount}</td></tr>)}</tbody></table></div>
+    <div role="region" aria-label={`All-time applications grouped by ${data.period.toLowerCase()} data`} tabIndex={0} className="mt-4 overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><table className="w-full min-w-80 text-left text-sm"><caption className="sr-only">All-time applications grouped by {data.period.toLowerCase()}</caption><thead><tr className="border-b"><th scope="col" className="py-2 font-medium">Period start</th><th scope="col" className="py-2 text-right font-medium">Applications</th></tr></thead><tbody>{data.buckets.map((bucket) => <tr key={bucket.startDate} className="border-b last:border-0"><th scope="row" className="py-2 font-normal"><time dateTime={bucket.startDate}>{formatBucketDate(bucket.startDate)}</time></th><td className="py-2 text-right tabular-nums">{bucket.applicationCount}</td></tr>)}</tbody></table></div>
   </>
 }
 
@@ -54,7 +54,7 @@ function ApplicationsOverTimePanel() {
   const [period, setPeriod] = useState<AnalyticsPeriod>('WEEK')
   const query = useApplicationsOverTime(period)
   const control = <div><Label htmlFor="analytics-period">Group all-time history by</Label><Select id="analytics-period" className="min-w-32" value={period} onChange={(event) => setPeriod(event.target.value as AnalyticsPeriod)}><option value="WEEK">Week</option><option value="MONTH">Month</option></Select></div>
-  return <Panel title="Applications over time" control={control}>{query.isPending ? <Loading label="Loading applications over time" /> : query.error ? <Failure title="Applications over time could not be loaded" retry={() => void query.refetch()} /> : <TimeSeries data={query.data} />}</Panel>
+  return <Panel title="Applications over time" control={control}><p role="status" aria-atomic="true" className="sr-only">{query.isSuccess && !query.isFetching ? `Applications over time grouped by ${query.data.period.toLowerCase()} loaded.` : ''}</p>{query.isPending ? <Loading label="Loading applications over time" /> : query.error ? <Failure title="Applications over time could not be loaded" retry={() => void query.refetch()} /> : <TimeSeries data={query.data} />}</Panel>
 }
 
 function MilestonesPanel() {
