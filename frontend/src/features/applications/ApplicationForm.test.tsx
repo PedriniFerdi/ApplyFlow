@@ -104,6 +104,12 @@ describe('new application URL import', () => {
 
     await waitFor(() => expect(summary.parentElement).toHaveAttribute('open'))
     expect(screen.getByText('2 fields need attention')).toBeInTheDocument()
+    const currency = screen.getByRole('textbox', { name: 'Currency' })
+    await waitFor(() => expect(currency).toHaveFocus())
+    expect(currency).toHaveAttribute('aria-invalid', 'true')
+    expect(currency).toHaveAttribute('aria-describedby', 'currency-error')
+    expect(screen.getByText('Use a three-letter currency code')).toHaveAttribute('id', 'currency-error')
+    expect(screen.getByText('Use a three-letter currency code')).toHaveAttribute('role', 'status')
   })
 
   it('starts exactly one non-blocking extraction on paste and fills empty fields', async () => {

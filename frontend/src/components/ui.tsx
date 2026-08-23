@@ -38,6 +38,6 @@ export function Spinner({ label = 'Loading' }: { label?: string }) {
   return <div role="status" className="min-h-64 space-y-3 py-7 text-sm text-muted-foreground"><span className="sr-only">{label}</span>{[0, 1, 2].map((item) => <span key={item} className="block h-20 animate-pulse rounded-[14px] border border-[#786a5d]/15 bg-white/55" />)}</div>
 }
 
-export function FieldError({ message }: { message?: string }) {
-  return message ? <p className="mt-1 text-sm text-destructive">{message}</p> : null
+export function FieldError({ id, message }: { id: string; message?: string }) {
+  return message ? <p id={id} role="status" aria-atomic="true" className="mt-1 text-sm text-destructive">{message}</p> : null
 }

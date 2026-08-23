@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query'
 import { Check, Eye, EyeOff, LockKeyhole, Mail } from 'lucide-react'
-import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent, type InputHTMLAttributes, type ReactNode } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import landscape from '@/assets/applyflow-landscape.png'
 import { Button, FieldError, Input, Label } from '@/components/ui'
@@ -49,15 +49,15 @@ function AuthLayout({ eyebrow, title, description, children }: {
   </main>
 }
 
-function PasswordInput({ id, value, onChange, autoComplete }: {
+function PasswordInput({ id, value, onChange, autoComplete, ...accessibilityProps }: {
   id: string
   value: string
   onChange: (value: string) => void
   autoComplete: string
-}) {
+} & Pick<InputHTMLAttributes<HTMLInputElement>, 'aria-invalid' | 'aria-describedby'>) {
   const [visible, setVisible] = useState(false)
   return <div className="relative">
-    <Input id={id} type={visible ? 'text' : 'password'} autoComplete={autoComplete} value={value} onChange={(event) => onChange(event.target.value)} className="min-h-12 pr-12" required />
+    <Input id={id} type={visible ? 'text' : 'password'} autoComplete={autoComplete} value={value} onChange={(event) => onChange(event.target.value)} className="min-h-12 pr-12" required {...accessibilityProps} />
     <button type="button" onClick={() => setVisible((current) => !current)} aria-label={visible ? 'Hide password' : 'Show password'} className="absolute inset-y-0 right-0 grid w-12 place-items-center text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
       {visible ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
     </button>
@@ -209,7 +209,7 @@ export function SignUpPage() {
         <div><Label htmlFor="fullName">Full name</Label><Input id="fullName" autoComplete="name" value={values.fullName} onChange={(event) => set('fullName')(event.target.value)} className="min-h-12" required /></div>
         <div><Label htmlFor="email">Email</Label><Input id="email" type="email" autoComplete="email" value={values.email} onChange={(event) => set('email')(event.target.value)} className="min-h-12" required /></div>
         <div><Label htmlFor="password">Password</Label><PasswordInput id="password" value={values.password} onChange={set('password')} autoComplete="new-password" /><p className="mt-1.5 text-xs text-muted-foreground">Use at least 12 characters.</p></div>
-        <div><Label htmlFor="passwordConfirmation">Confirm password</Label><PasswordInput id="passwordConfirmation" value={values.passwordConfirmation} onChange={set('passwordConfirmation')} autoComplete="new-password" /><FieldError message={mismatch ? 'Passwords do not match.' : undefined} /></div>
+        <div><Label htmlFor="passwordConfirmation">Confirm password</Label><PasswordInput id="passwordConfirmation" value={values.passwordConfirmation} onChange={set('passwordConfirmation')} autoComplete="new-password" aria-invalid={mismatch || undefined} aria-describedby={mismatch ? 'passwordConfirmation-error' : undefined} /><FieldError id="passwordConfirmation-error" message={mismatch ? 'Passwords do not match.' : undefined} /></div>
         <MutationError error={mutation.error} />
         <Button type="submit" disabled={mutation.isPending || mismatch} className="min-h-12 w-full">{mutation.isPending ? 'Creating account…' : 'Create account'}</Button>
       </form>
@@ -241,7 +241,7 @@ export function ResetPasswordPage() {
   return <AuthLayout eyebrow="Secure link" title="Choose a new password" description="This link can be used once. Your other active sessions will be closed after the change.">
     {!token ? <MutationError error={new ApiProblem({ detail: 'This password link is missing its token.' }, 400)} /> : mutation.isSuccess ? <SuccessMessage title="Password updated"><p>Your new password is ready.</p><Link to="/sign-in" className="mt-4 inline-block font-semibold text-foreground underline-offset-4 hover:underline">Continue to sign in</Link></SuccessMessage> : <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); if (!mismatch) mutation.mutate() }}>
       <div><Label htmlFor="password">New password</Label><PasswordInput id="password" value={password} onChange={setPassword} autoComplete="new-password" /></div>
-      <div><Label htmlFor="confirmation">Confirm new password</Label><PasswordInput id="confirmation" value={confirmation} onChange={setConfirmation} autoComplete="new-password" /><FieldError message={mismatch ? 'Passwords do not match.' : undefined} /></div>
+      <div><Label htmlFor="confirmation">Confirm new password</Label><PasswordInput id="confirmation" value={confirmation} onChange={setConfirmation} autoComplete="new-password" aria-invalid={mismatch || undefined} aria-describedby={mismatch ? 'confirmation-error' : undefined} /><FieldError id="confirmation-error" message={mismatch ? 'Passwords do not match.' : undefined} /></div>
       <MutationError error={mutation.error} />
       <Button type="submit" disabled={mutation.isPending || mismatch} className="min-h-12 w-full">{mutation.isPending ? 'Updating…' : 'Update password'}</Button>
     </form>}
@@ -312,7 +312,7 @@ export function SecuritySettingsPage() {
       {!hasPassword ? <div className="mt-5"><p className="text-sm leading-6 text-muted-foreground">This account currently signs in with Google. Request a secure email link to add password sign-in.</p><MutationError error={setupMutation.error} />{setupMutation.isSuccess ? <SuccessMessage title="Check your inbox"><p>We sent a password setup link.</p></SuccessMessage> : <Button className="mt-5" onClick={() => setupMutation.mutate()} disabled={setupMutation.isPending}><Mail size={17} aria-hidden="true" />Send password setup link</Button>}</div> : <form className="mt-6 space-y-5" onSubmit={(event: FormEvent) => { event.preventDefault(); if (!mismatch) passwordMutation.mutate() }}>
         <div><Label htmlFor="currentPassword">Current password</Label><PasswordInput id="currentPassword" value={values.currentPassword} onChange={field('currentPassword')} autoComplete="current-password" /></div>
         <div><Label htmlFor="newPassword">New password</Label><PasswordInput id="newPassword" value={values.password} onChange={field('password')} autoComplete="new-password" /></div>
-        <div><Label htmlFor="confirmPassword">Confirm new password</Label><PasswordInput id="confirmPassword" value={values.passwordConfirmation} onChange={field('passwordConfirmation')} autoComplete="new-password" /><FieldError message={mismatch ? 'Passwords do not match.' : undefined} /></div>
+        <div><Label htmlFor="confirmPassword">Confirm new password</Label><PasswordInput id="confirmPassword" value={values.passwordConfirmation} onChange={field('passwordConfirmation')} autoComplete="new-password" aria-invalid={mismatch || undefined} aria-describedby={mismatch ? 'confirmPassword-error' : undefined} /><FieldError id="confirmPassword-error" message={mismatch ? 'Passwords do not match.' : undefined} /></div>
         <MutationError error={passwordMutation.error} />
         {passwordMutation.isSuccess && <SuccessMessage title="Password changed"><p>Your other sessions have been closed.</p></SuccessMessage>}
         <Button type="submit" disabled={passwordMutation.isPending || mismatch}>{passwordMutation.isPending ? 'Saving…' : 'Change password'}</Button>

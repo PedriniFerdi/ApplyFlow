@@ -87,6 +87,22 @@ describe('authentication pages', () => {
     expect(screen.queryByText(/github/i)).not.toBeInTheDocument()
   })
 
+  it('associates password confirmation mismatch feedback with its control', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({ detail: 'Authentication required' }, 401))
+    renderRoute('/sign-up')
+
+    await user.type(await screen.findByLabelText('Password'), 'a-secure-password')
+    const confirmation = screen.getByLabelText('Confirm password')
+    await user.type(confirmation, 'a-different-password')
+
+    const feedback = screen.getByText('Passwords do not match.')
+    expect(confirmation).toHaveAttribute('aria-invalid', 'true')
+    expect(confirmation).toHaveAttribute('aria-describedby', 'passwordConfirmation-error')
+    expect(feedback).toHaveAttribute('id', 'passwordConfirmation-error')
+    expect(feedback).toHaveAttribute('role', 'status')
+  })
+
   it('resends verification from the registration success state using the submitted email', async () => {
     const user = userEvent.setup()
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
