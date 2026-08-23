@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { applicationSearchParams, getAllApplications } from './api'
+import { QueryClient } from '@tanstack/react-query'
+import { analyticsKeys } from '@/features/analytics/api'
+import { applicationSearchParams, getAllApplications, invalidateApplicationData } from './api'
 
 describe('applicationSearchParams', () => {
   afterEach(() => vi.restoreAllMocks())
@@ -23,5 +25,12 @@ describe('applicationSearchParams', () => {
     expect(result.map(({ id }) => id)).toEqual([1, 2])
     expect(fetchMock.mock.calls[0][0].toString()).toContain('page=0')
     expect(fetchMock.mock.calls[1][0].toString()).toContain('page=1')
+  })
+
+  it('invalidates analytics after application writes and deletion', async () => {
+    const client = new QueryClient()
+    client.setQueryData(analyticsKeys.summary, { totalApplications: 1 })
+    await invalidateApplicationData(client)
+    expect(client.getQueryState(analyticsKeys.summary)?.isInvalidated).toBe(true)
   })
 })

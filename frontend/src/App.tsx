@@ -3,7 +3,7 @@ import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 import { AppShell } from '@/components/AppShell'
 import { Button } from '@/components/ui'
 import { useAuth } from '@/features/auth/auth-context'
-import { loadApplicationPages, loadAuthPages, loadNewApplicationPage } from '@/route-loaders'
+import { loadAnalyticsPage, loadApplicationPages, loadAuthPages, loadNewApplicationPage } from '@/route-loaders'
 
 const ApplicationsPage = lazy(() => loadApplicationPages().then(({ ApplicationsPage }) => ({ default: ApplicationsPage })))
 const ApplicationDetailPage = lazy(() => loadApplicationPages().then(({ ApplicationDetailPage }) => ({ default: ApplicationDetailPage })))
@@ -11,6 +11,7 @@ const EditApplicationPage = lazy(() => loadApplicationPages().then(({ EditApplic
 const TrackerPage = lazy(() => loadApplicationPages().then(({ TrackerPage }) => ({ default: TrackerPage })))
 const NotFoundPage = lazy(() => loadApplicationPages().then(({ NotFoundPage }) => ({ default: NotFoundPage })))
 const NewApplicationPage = lazy(loadNewApplicationPage)
+const AnalyticsPage = lazy(loadAnalyticsPage)
 const SignInPage = lazy(() => loadAuthPages().then(({ SignInPage }) => ({ default: SignInPage })))
 const SignUpPage = lazy(() => loadAuthPages().then(({ SignUpPage }) => ({ default: SignUpPage })))
 const ForgotPasswordPage = lazy(() => loadAuthPages().then(({ ForgotPasswordPage }) => ({ default: ForgotPasswordPage })))
@@ -52,6 +53,7 @@ function App() {
         <Route path="applications/:id" element={<LazyRoute><ApplicationDetailPage /></LazyRoute>} />
         <Route path="applications/:id/edit" element={<LazyRoute><EditApplicationPage /></LazyRoute>} />
         <Route path="tracker" element={<LazyRoute><TrackerPage /></LazyRoute>} />
+        <Route path="analytics" element={<LazyRoute><AnalyticsPage /></LazyRoute>} />
         <Route path="settings/security" element={<LazyRoute><SecuritySettingsPage /></LazyRoute>} />
         <Route path="not-found" element={<LazyRoute><NotFoundPage /></LazyRoute>} />
         <Route path="*" element={<LazyRoute><NotFoundPage /></LazyRoute>} />

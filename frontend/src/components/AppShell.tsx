@@ -1,4 +1,4 @@
-import { BriefcaseBusiness, ChevronLeft, KanbanSquare, LogOut, Plus, ShieldCheck } from 'lucide-react'
+import { BarChart3, BriefcaseBusiness, ChevronLeft, KanbanSquare, LogOut, Plus, ShieldCheck } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { NavLink, Outlet } from 'react-router-dom'
 import landscape from '@/assets/applyflow-landscape.png'
@@ -9,7 +9,8 @@ import { loadNewApplicationPage } from '@/route-loaders'
 const links = [
   { to: '/applications', label: 'Applications', icon: BriefcaseBusiness, end: true },
   { to: '/tracker', label: 'Tracker', icon: KanbanSquare, end: false },
-  { to: '/applications/new', label: 'New application', icon: Plus, end: false },
+  { to: '/analytics', label: 'Analytics', icon: BarChart3, end: false },
+  { to: '/applications/new', label: 'New application', icon: Plus, end: false, emphasized: true },
 ]
 
 function Brand() {
@@ -45,8 +46,8 @@ function TopNav() {
       .catch(() => { /* Navigation remains available when speculative prefetch fails. */ })
   }
   return <nav aria-label="Page navigation" className="flex min-w-max items-stretch gap-2">
-    {links.map(({ to, label, icon: Icon, end }, index) => <NavLink key={to} to={to} end={end} onMouseEnter={to === '/applications/new' ? warmNewApplication : undefined} onFocus={to === '/applications/new' ? warmNewApplication : undefined} className={({ isActive }) => cn('relative flex min-h-14 items-center gap-2 px-4 text-[15px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', index === 2 && 'ml-3 border-l pl-7', isActive && 'font-semibold text-foreground after:absolute after:inset-x-3 after:bottom-0 after:h-px after:bg-foreground')}>
-      {index === 2 && <Icon size={19} strokeWidth={1.7} aria-hidden="true" />}
+    {links.map(({ to, label, icon: Icon, end, emphasized }) => <NavLink key={to} to={to} end={end} onMouseEnter={emphasized ? warmNewApplication : undefined} onFocus={emphasized ? warmNewApplication : undefined} className={({ isActive }) => cn('relative flex min-h-14 items-center gap-2 px-4 text-[15px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', emphasized && 'ml-3 border-l pl-7', isActive && 'font-semibold text-foreground after:absolute after:inset-x-3 after:bottom-0 after:h-px after:bg-foreground')}>
+      {emphasized && <Icon size={19} strokeWidth={1.7} aria-hidden="true" />}
       <span>{label}</span>
     </NavLink>)}
   </nav>

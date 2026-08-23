@@ -1,5 +1,6 @@
 export const loadApplicationPages = () => import('@/features/applications/pages')
 export const loadAuthPages = () => import('@/features/auth/pages')
+export const loadAnalyticsPage = () => import('@/features/analytics/AnalyticsPage')
 
 let newApplicationPagePromise: Promise<typeof import('@/features/applications/NewApplicationPage')> | undefined
 

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { analyticsKeys } from '@/features/analytics/api'
 import { apiRequest, prefetchCsrfToken } from '@/lib/api-client'
 import type { ApplicationListParams, CatalogItem, ChangeStatusRequest, Company, CreateApplicationRequest, JobApplicationDetail, JobApplicationPage, JobApplicationSummary, JobOfferExtraction, UpdateApplicationRequest } from '@/types/api'
 
@@ -82,15 +83,18 @@ export function useCompanies(query = '') { return useQuery({ queryKey: catalogKe
 export function useSources() { return useQuery({ queryKey: catalogKeys.sources, queryFn: ({ signal }) => getSources(signal), staleTime: 300_000 }) }
 export function useTechnologies() { return useQuery({ queryKey: catalogKeys.technologies, queryFn: ({ signal }) => getTechnologies(signal), staleTime: 300_000 }) }
 
+export async function invalidateApplicationData(client: QueryClient, detail?: JobApplicationDetail) {
+  if (detail) client.setQueryData(applicationKeys.detail(detail.id), detail)
+  await Promise.all([
+    client.invalidateQueries({ queryKey: applicationKeys.lists() }),
+    client.invalidateQueries({ queryKey: applicationKeys.tracker }),
+    client.invalidateQueries({ queryKey: analyticsKeys.all }),
+  ])
+}
+
 function useApplicationInvalidation() {
   const client = useQueryClient()
-  return async (detail?: JobApplicationDetail) => {
-    if (detail) client.setQueryData(applicationKeys.detail(detail.id), detail)
-    await Promise.all([
-      client.invalidateQueries({ queryKey: applicationKeys.lists() }),
-      client.invalidateQueries({ queryKey: applicationKeys.tracker }),
-    ])
-  }
+  return (detail?: JobApplicationDetail) => invalidateApplicationData(client, detail)
 }
 
 export function useCreateApplication() {
@@ -112,7 +116,7 @@ export function useDeleteApplication() {
   const client = useQueryClient()
   return useMutation({ mutationFn: deleteApplication, onSuccess: async (_, id) => {
     client.removeQueries({ queryKey: applicationKeys.detail(id) })
-    await Promise.all([client.invalidateQueries({ queryKey: applicationKeys.lists() }), client.invalidateQueries({ queryKey: applicationKeys.tracker })])
+    await invalidateApplicationData(client)
   } })
 }
 

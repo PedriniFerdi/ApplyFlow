@@ -147,3 +147,51 @@ export interface CsrfTokenResponse {
   token: string
   headerName: string
 }
+
+export type AnalyticsPeriod = 'WEEK' | 'MONTH'
+
+export interface AnalyticsSummary {
+  totalApplications: number
+  appliedApplications: number
+  responseCount: number
+  responseRate: number
+  interviewCount: number
+  interviewRate: number
+  offerCount: number
+  offerRate: number
+  rejectionCount: number
+  rejectionRate: number
+}
+
+export interface FunnelAnalytics {
+  stages: Array<{ status: ApplicationStatus; count: number }>
+}
+
+export interface ApplicationsOverTime {
+  period: AnalyticsPeriod
+  buckets: Array<{ startDate: string; applicationCount: number }>
+}
+
+export interface DimensionAnalyticsItem {
+  id: number
+  name: string
+  applicationCount: number
+  responseCount: number
+  responseRate: number
+  interviewCount: number
+  interviewRate: number
+  offerCount: number
+  offerRate: number
+  rejectionCount: number
+  rejectionRate: number
+}
+
+export interface DimensionAnalytics {
+  items: DimensionAnalyticsItem[]
+}
+
+export interface ResponseTimeAnalytics {
+  sampleSize: number
+  averageDays: number | null
+  medianDays: number | null
+}
