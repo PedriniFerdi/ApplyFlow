@@ -30,7 +30,9 @@ describe('authentication pages', () => {
   it('redirects an anonymous visitor from product routes to sign in', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({ detail: 'Authentication required' }, 401))
     renderRoute('/applications')
-    expect(await screen.findByRole('heading', { name: 'Sign in to ApplyFlow' })).toBeInTheDocument()
+    const heading = await screen.findByRole('heading', { name: 'Sign in to ApplyFlow' })
+    await waitFor(() => expect(heading).toHaveFocus())
+    expect(heading).toHaveAttribute('tabindex', '-1')
   })
 
   it('keeps protected content behind a labelled loading state during session bootstrap', async () => {

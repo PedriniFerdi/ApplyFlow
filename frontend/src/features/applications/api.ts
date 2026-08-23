@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { analyticsKeys } from '@/features/analytics/api'
 import { apiRequest, prefetchCsrfToken } from '@/lib/api-client'
 import type { ApplicationListParams, ApplicationStatus, CatalogItem, ChangeStatusRequest, Company, CreateApplicationRequest, JobApplicationDetail, JobApplicationPage, JobOfferExtraction, UpdateApplicationRequest } from '@/types/api'
@@ -63,7 +63,7 @@ export async function prefetchNewApplicationResources(client: QueryClient) {
 }
 
 export function useApplications(params: ApplicationListParams) {
-  return useQuery({ queryKey: applicationKeys.list(params), queryFn: ({ signal }) => getApplications(params, signal) })
+  return useQuery({ queryKey: applicationKeys.list(params), queryFn: ({ signal }) => getApplications(params, signal), placeholderData: keepPreviousData })
 }
 
 export function useTracker(group: TrackerGroup, statuses: readonly ApplicationStatus[]) {

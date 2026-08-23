@@ -59,7 +59,7 @@ describe('application pages', () => {
     })
 
     renderRoute('/applications')
-    expect(await screen.findByRole('heading', { name: 'No applications yet' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'No applications yet' }, { timeout: 3000 })).toBeInTheDocument()
 
     fireEvent.mouseEnter(screen.getAllByRole('link', { name: 'New application' })[0])
 
@@ -90,6 +90,52 @@ describe('application pages', () => {
     renderRoute('/applications')
     expect(await screen.findByRole('heading', { name: 'No applications yet' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Add application' })).toHaveAttribute('href', '/applications/new')
+  })
+
+  it('focuses the committed destination heading after keyboard navigation', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      if (input.toString().endsWith('/auth/me')) return json(currentUser)
+      return input.toString().includes('/applications?') ? json(emptyPage) : json([])
+    })
+    const user = userEvent.setup()
+    renderRoute('/applications')
+
+    const trackerLink = await screen.findAllByRole('link', { name: 'Tracker' }).then(([link]) => link)
+    trackerLink.focus()
+    await user.keyboard('{Enter}')
+
+    const heading = await screen.findByRole('heading', { name: 'Tracker' })
+    await waitFor(() => expect(heading).toHaveFocus())
+    expect(heading).toHaveAttribute('tabindex', '-1')
+  })
+
+  it('keeps pagination results and focus stable while the requested page loads', async () => {
+    let resolveNextPage!: (response: Response) => void
+    const nextPage = new Promise<Response>((resolve) => { resolveNextPage = resolve })
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input.toString()
+      if (url.endsWith('/auth/me')) return json(currentUser)
+      if (!url.includes('/applications?')) return json([])
+      const page = Number(new URLSearchParams(url.split('?')[1]).get('page'))
+      if (page === 1) return nextPage
+      return json({ items: [summary(1, 'APPLIED', 'First')], page: 0, size: 20, totalElements: 21, totalPages: 2 })
+    })
+    const user = userEvent.setup()
+    renderRoute('/applications')
+
+    const next = await screen.findByRole('button', { name: 'Next' })
+    await user.click(next)
+    expect(next).toHaveFocus()
+    expect(next).not.toBeDisabled()
+    expect(next).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByText('First company 1')).toBeInTheDocument()
+    expect(next.closest('[aria-busy]')).toHaveAttribute('aria-busy', 'true')
+
+    resolveNextPage(json({ items: [summary(2, 'APPLIED', 'Second')], page: 1, size: 20, totalElements: 21, totalPages: 2 }))
+    expect(await screen.findByText('Second company 2')).toBeInTheDocument()
+    expect(next).toHaveFocus()
+    expect(next).not.toBeDisabled()
+    expect(next).toHaveAttribute('aria-disabled', 'true')
   })
 
   it('renders a retryable list error without showing stale data', async () => {
@@ -209,8 +255,51 @@ describe('application pages', () => {
     expect(await screen.findByRole('heading', { name: 'Platform Engineer' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Delete' }))
     expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus())
     await user.click(screen.getByRole('button', { name: 'Delete permanently' }))
     expect(await screen.findByRole('heading', { name: 'No applications yet' })).toBeInTheDocument()
     expect(fetchMock.mock.calls.some(([url, init]) => url.toString().endsWith('/applications/42') && init?.method === 'DELETE')).toBe(true)
+  })
+
+  it('contains delete-dialog focus, closes on Escape, and restores its trigger', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input.toString()
+      if (url.endsWith('/auth/me')) return json(currentUser)
+      if (url.endsWith('/applications/42')) return json(detail)
+      return json([])
+    })
+    const user = userEvent.setup()
+    renderRoute('/applications/42')
+
+    const trigger = await screen.findByRole('button', { name: 'Delete' })
+    await user.click(trigger)
+    const dialog = screen.getByRole('alertdialog')
+    const cancel = within(dialog).getByRole('button', { name: 'Cancel' })
+    await waitFor(() => expect(cancel).toHaveFocus())
+    await user.tab()
+    expect(within(dialog).getByRole('button', { name: 'Delete permanently' })).toHaveFocus()
+    await user.tab()
+    expect(cancel).toHaveFocus()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    await waitFor(() => expect(trigger).toHaveFocus())
+  })
+
+  it('keeps delete confirmation open and announces a failed deletion', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = input.toString()
+      if (url.endsWith('/auth/me')) return json(currentUser)
+      if (url.endsWith('/auth/csrf')) return json({ token: 'csrf-token', headerName: 'X-CSRF-TOKEN' })
+      if (url.endsWith('/applications/42') && init?.method === 'DELETE') return json({ detail: 'Deletion service unavailable' }, 503)
+      if (url.endsWith('/applications/42')) return json(detail)
+      return json([])
+    })
+    const user = userEvent.setup()
+    renderRoute('/applications/42')
+
+    await user.click(await screen.findByRole('button', { name: 'Delete' }))
+    await user.click(screen.getByRole('button', { name: 'Delete permanently' }))
+    expect(await within(screen.getByRole('alertdialog')).findByRole('alert')).toHaveTextContent('Deletion service unavailable')
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
   })
 })

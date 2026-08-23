@@ -1,4 +1,4 @@
-import { lazy, Suspense, type ReactNode } from 'react'
+import { lazy, Suspense, type ReactNode, useEffect, useRef } from 'react'
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 import { AppShell } from '@/components/AppShell'
 import { Button } from '@/components/ui'
@@ -28,6 +28,45 @@ function LazyRoute({ children }: { children: ReactNode }) {
   return <Suspense fallback={<RouteFallback />}>{children}</Suspense>
 }
 
+function NavigationFocus() {
+  const { pathname } = useLocation()
+  const pointerDestination = useRef<string | null>(null)
+
+  useEffect(() => {
+    const rememberPointerNavigation = (event: PointerEvent) => {
+      const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a[href]') : null
+      if (!link || link.target === '_blank') return
+      const destination = new URL(link.href, window.location.href)
+      pointerDestination.current = destination.origin === window.location.origin ? destination.pathname : null
+    }
+    document.addEventListener('pointerdown', rememberPointerNavigation, true)
+    return () => document.removeEventListener('pointerdown', rememberPointerNavigation, true)
+  }, [])
+
+  useEffect(() => {
+    if (pointerDestination.current === pathname) {
+      pointerDestination.current = null
+      return
+    }
+    pointerDestination.current = null
+    const focusHeading = () => {
+      const heading = document.querySelector<HTMLElement>('main h1, h1')
+      if (!heading) return false
+      heading.tabIndex = -1
+      heading.focus()
+      return true
+    }
+    if (focusHeading()) return
+    const observer = new MutationObserver(() => {
+      if (focusHeading()) observer.disconnect()
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [pathname])
+
+  return null
+}
+
 function RequireAuthentication() {
   const session = useAuth()
   const location = useLocation()
@@ -38,7 +77,7 @@ function RequireAuthentication() {
 }
 
 function App() {
-  return <Routes>
+  return <><NavigationFocus /><Routes>
     <Route path="sign-in" element={<LazyRoute><SignInPage /></LazyRoute>} />
     <Route path="sign-up" element={<LazyRoute><SignUpPage /></LazyRoute>} />
     <Route path="forgot-password" element={<LazyRoute><ForgotPasswordPage /></LazyRoute>} />
@@ -59,7 +98,7 @@ function App() {
         <Route path="*" element={<LazyRoute><NotFoundPage /></LazyRoute>} />
       </Route>
     </Route>
-  </Routes>
+  </Routes></>
 }
 
 export default App
