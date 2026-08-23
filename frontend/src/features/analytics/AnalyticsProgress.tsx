@@ -9,7 +9,7 @@ const milestoneLabels: Record<AnalyticsFunnelStatus, string> = {
   TECHNICAL_INTERVIEW: 'Technical interview', FINAL_INTERVIEW: 'Final interview', OFFER: 'Offer',
 }
 
-export function formatBucketDate(value: string) {
+function formatBucketDate(value: string) {
   return dateFormat.format(new Date(`${value}T00:00:00Z`))
 }
 

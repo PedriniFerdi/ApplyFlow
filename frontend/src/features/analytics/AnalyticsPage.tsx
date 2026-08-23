@@ -5,6 +5,7 @@ import { Button, Card, ErrorPanel, Spinner } from '@/components/ui'
 import type { AnalyticsSummary } from '@/types/api'
 import { useAnalyticsSummary, useResponseTimeAnalytics } from './api'
 import { AnalyticsProgress } from './AnalyticsProgress'
+import { AnalyticsComparisons } from './AnalyticsComparisons'
 
 const percentage = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 })
 const decimal = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 })
@@ -53,6 +54,7 @@ function AnalyticsOverview({ summary }: { summary: AnalyticsSummary }) {
       <MetricCard label="Rejections" value={summary.rejectionCount} detail={rate(summary.rejectionRate, sent)} icon={CircleX} />
     </dl>
     <AnalyticsProgress />
+    <AnalyticsComparisons />
     <ResponseTimePanel />
   </div>
 }

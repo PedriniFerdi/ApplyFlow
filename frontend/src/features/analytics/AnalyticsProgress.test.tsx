@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AnalyticsProgress, formatBucketDate } from './AnalyticsProgress'
+import { AnalyticsProgress } from './AnalyticsProgress'
 
 const stages = [
   { status: 'APPLIED', count: 4 }, { status: 'RESPONSE_RECEIVED', count: 2 }, { status: 'HR_INTERVIEW', count: 3 },
@@ -24,11 +24,14 @@ describe('AnalyticsProgress', () => {
       return url.endsWith('MONTH') ? json({ period: 'MONTH', buckets: [{ startDate: '2026-08-01', applicationCount: 7 }] }) : json({ period: 'WEEK', buckets: [{ startDate: '2026-08-03', applicationCount: 2 }, { startDate: '2026-08-17', applicationCount: 5 }] })
     })
     const user = userEvent.setup()
-    renderProgress()
+    const { container } = renderProgress()
     const seriesTable = await screen.findByRole('table', { name: 'All-time applications grouped by week' })
     expect(within(seriesTable).getAllByRole('row')).toHaveLength(3)
-    expect(screen.getByText(formatBucketDate('2026-08-03'))).toHaveAttribute('datetime', '2026-08-03')
-    expect(screen.getByText(formatBucketDate('2026-08-17'))).toHaveAttribute('datetime', '2026-08-17')
+    const dates = Array.from(container.querySelectorAll('time[datetime]'))
+    expect(dates.map((date) => date.getAttribute('datetime'))).toEqual(['2026-08-03', '2026-08-17'])
+    const utc = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+    expect(dates[0]).toHaveTextContent(utc.format(new Date('2026-08-03T00:00:00Z')))
+    expect(dates[1]).toHaveTextContent(utc.format(new Date('2026-08-17T00:00:00Z')))
     await user.selectOptions(screen.getByLabelText('Group all-time history by'), 'MONTH')
     expect(await screen.findByRole('table', { name: 'All-time applications grouped by month' })).toBeInTheDocument()
     expect(fetchMock.mock.calls.filter(([input]) => input.toString().includes('applications-over-time'))).toHaveLength(2)

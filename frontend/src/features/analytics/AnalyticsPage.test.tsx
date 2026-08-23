@@ -17,6 +17,7 @@ function detail(
   const url = input.toString()
   if (url.endsWith('/analytics/funnel')) return json({ stages: [] })
   if (url.includes('/analytics/applications-over-time')) return json({ period: url.endsWith('MONTH') ? 'MONTH' : 'WEEK', buckets: [] })
+  if (url.endsWith('/analytics/sources') || url.endsWith('/analytics/technologies')) return json({ items: [] })
   return json(responseTime)
 }
 function renderRoute() {
@@ -119,12 +120,12 @@ describe('AnalyticsPage', () => {
     renderRoute()
     expect(await screen.findByText(/No response-time sample yet/)).toBeInTheDocument()
     const analyticsUrls = fetchMock.mock.calls.map(([input]) => input.toString()).filter((url) => url.includes('/analytics/'))
-    expect(analyticsUrls).toHaveLength(4)
+    expect(analyticsUrls).toHaveLength(6)
     expect(analyticsUrls.some((url) => url.endsWith('/analytics/summary'))).toBe(true)
     expect(analyticsUrls.some((url) => url.endsWith('/analytics/response-time'))).toBe(true)
     expect(analyticsUrls.some((url) => url.endsWith('/analytics/funnel'))).toBe(true)
     expect(analyticsUrls.some((url) => url.endsWith('/analytics/applications-over-time?period=WEEK'))).toBe(true)
-    expect(analyticsUrls.some((url) => url.endsWith('/analytics/sources'))).toBe(false)
-    expect(analyticsUrls.some((url) => url.endsWith('/analytics/technologies'))).toBe(false)
+    expect(analyticsUrls.some((url) => url.endsWith('/analytics/sources'))).toBe(true)
+    expect(analyticsUrls.some((url) => url.endsWith('/analytics/technologies'))).toBe(true)
   })
 })
