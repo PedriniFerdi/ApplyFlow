@@ -74,8 +74,8 @@ export function AppShell() {
             <p className="truncate px-2 text-sm font-semibold">{user?.fullName}</p>
             <p className="truncate px-2 text-xs text-muted-foreground">{user?.email}</p>
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <NavLink to="/settings/security" className="flex min-h-10 items-center justify-center gap-2 rounded-[10px] border bg-white text-xs font-semibold shadow-xs transition hover:bg-[#e9e9e7] active:translate-y-px"><ShieldCheck size={15} aria-hidden="true" />Security</NavLink>
-              <button type="button" onClick={() => void logout()} className="flex min-h-10 items-center justify-center gap-2 rounded-[10px] border bg-white text-xs font-semibold shadow-xs transition hover:bg-[#e9e9e7] active:translate-y-px"><LogOut size={15} aria-hidden="true" />Sign out</button>
+              <NavLink to="/settings/security" className="flex min-h-11 items-center justify-center gap-2 rounded-[10px] border bg-white text-xs font-semibold shadow-xs transition hover:bg-[#e9e9e7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:translate-y-px"><ShieldCheck size={15} aria-hidden="true" />Security</NavLink>
+              <button type="button" onClick={() => void logout()} className="flex min-h-11 items-center justify-center gap-2 rounded-[10px] border bg-white text-xs font-semibold shadow-xs transition hover:bg-[#e9e9e7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:translate-y-px"><LogOut size={15} aria-hidden="true" />Sign out</button>
             </div>
           </div>
         </aside>
@@ -84,7 +84,10 @@ export function AppShell() {
           <header className="flex min-h-[76px] items-center justify-between gap-4 border-b border-[#75685d]/15 px-5 sm:px-7 lg:min-h-[88px] lg:justify-end lg:px-10 xl:px-[54px]">
             <div className="lg:hidden"><Brand /></div>
             <div className="min-w-0 flex-1 overflow-x-auto lg:flex-none"><TopNav /></div>
-            <button type="button" onClick={() => void logout()} aria-label="Sign out" className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] border bg-white text-muted-foreground shadow-xs transition hover:text-foreground active:translate-y-px lg:hidden"><LogOut size={17} aria-hidden="true" /></button>
+            <div className="flex shrink-0 items-center gap-2 lg:hidden">
+              <NavLink to="/settings/security" aria-label="Security settings" className="grid h-11 w-11 place-items-center rounded-[10px] border bg-white text-muted-foreground shadow-xs transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:translate-y-px"><ShieldCheck size={17} aria-hidden="true" /></NavLink>
+              <button type="button" onClick={() => void logout()} aria-label="Sign out" className="grid h-11 w-11 place-items-center rounded-[10px] border bg-white text-muted-foreground shadow-xs transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:translate-y-px"><LogOut size={17} aria-hidden="true" /></button>
+            </div>
           </header>
           <main id="main-content" className="px-5 pb-8 pt-7 sm:px-8 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:px-10 lg:pb-10 lg:pt-8 xl:px-[54px]"><Outlet /></main>
         </section>

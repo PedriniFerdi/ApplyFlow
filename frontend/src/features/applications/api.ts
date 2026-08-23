@@ -1,13 +1,17 @@
-import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { analyticsKeys } from '@/features/analytics/api'
 import { apiRequest, prefetchCsrfToken } from '@/lib/api-client'
-import type { ApplicationListParams, CatalogItem, ChangeStatusRequest, Company, CreateApplicationRequest, JobApplicationDetail, JobApplicationPage, JobApplicationSummary, JobOfferExtraction, UpdateApplicationRequest } from '@/types/api'
+import type { ApplicationListParams, ApplicationStatus, CatalogItem, ChangeStatusRequest, Company, CreateApplicationRequest, JobApplicationDetail, JobApplicationPage, JobOfferExtraction, UpdateApplicationRequest } from '@/types/api'
+import type { TrackerGroup } from './model'
+
+const TRACKER_PAGE_SIZE = 8
 
 export const applicationKeys = {
   all: ['applications'] as const,
   lists: () => ['applications', 'list'] as const,
   list: (params: ApplicationListParams) => ['applications', 'list', params] as const,
   tracker: ['applications', 'tracker'] as const,
+  trackerStage: (group: TrackerGroup) => ['applications', 'tracker', group] as const,
   detail: (id: number) => ['applications', 'detail', id] as const,
 }
 
@@ -34,17 +38,8 @@ export function getApplications(params: ApplicationListParams, signal?: AbortSig
   return apiRequest<JobApplicationPage>(`/applications?${applicationSearchParams(params)}`, { signal })
 }
 
-export async function getAllApplications(signal?: AbortSignal): Promise<JobApplicationSummary[]> {
-  const items: JobApplicationSummary[] = []
-  let page = 0
-  let totalPages = 1
-  while (page < totalPages) {
-    const result = await getApplications({ page, size: 100, sortBy: 'updatedAt', direction: 'DESC' }, signal)
-    items.push(...result.items)
-    totalPages = result.totalPages
-    page += 1
-  }
-  return items
+export function getTrackerPage(statuses: readonly ApplicationStatus[], page: number, signal?: AbortSignal) {
+  return getApplications({ status: [...statuses], page, size: TRACKER_PAGE_SIZE, sortBy: 'updatedAt', direction: 'DESC' }, signal)
 }
 
 export const getApplication = (id: number, signal?: AbortSignal) => apiRequest<JobApplicationDetail>(`/applications/${id}`, { signal })
@@ -71,8 +66,13 @@ export function useApplications(params: ApplicationListParams) {
   return useQuery({ queryKey: applicationKeys.list(params), queryFn: ({ signal }) => getApplications(params, signal) })
 }
 
-export function useTracker() {
-  return useQuery({ queryKey: applicationKeys.tracker, queryFn: ({ signal }) => getAllApplications(signal) })
+export function useTracker(group: TrackerGroup, statuses: readonly ApplicationStatus[]) {
+  return useInfiniteQuery({
+    queryKey: applicationKeys.trackerStage(group),
+    queryFn: ({ pageParam, signal }) => getTrackerPage(statuses, pageParam, signal),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => lastPage.page + 1 < lastPage.totalPages ? lastPage.page + 1 : undefined,
+  })
 }
 
 export function useApplication(id: number) {

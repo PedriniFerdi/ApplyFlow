@@ -1,5 +1,5 @@
 import { Archive, ArrowDownUp, ArrowLeft, BadgeCheck, Bookmark, BriefcaseBusiness, ChevronDown, ExternalLink, Funnel, Pencil, Plus, Send, Trash2, Users } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ApiProblem } from '@/lib/api-client'
 import { Badge, Button, Card, ErrorPanel, Label, Select, Spinner } from '@/components/ui'
@@ -7,7 +7,7 @@ import { APPLICATION_STATUSES, type ApplicationListParams, type ApplicationStatu
 import { ApplicationForm } from './ApplicationForm'
 import { PageHeader } from './PageHeader'
 import { StatusControl } from './StatusControl'
-import { ACTIVE_TRACKER_GROUPS, groupApplications, STATUS_LABELS, formatDate, formatInstant, type TrackerGroup } from './model'
+import { STATUS_LABELS, formatDate, formatInstant, type TrackerGroup } from './model'
 import { useApplication, useApplications, useCompanies, useDeleteApplication, useSources, useTechnologies, useTracker, useUpdateApplication } from './api'
 
 const primaryLinkClass = 'inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-[11px] bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,.16),0_3px_8px_rgba(0,0,0,.12)] transition-[background-color,color,border-color,transform,box-shadow] duration-200 hover:bg-[#2c2c2c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:translate-y-px'
@@ -127,6 +127,16 @@ const TRACKER_ICONS: Record<Exclude<TrackerGroup, 'closed'>, typeof Bookmark> = 
   offer: BadgeCheck,
 }
 
+const TRACKER_STAGES = [
+  { id: 'bookmarked', label: 'Wishlist', statuses: ['BOOKMARKED'] },
+  { id: 'applied', label: 'Applied', statuses: ['APPLIED', 'RESPONSE_RECEIVED'] },
+  { id: 'interview', label: 'Interview', statuses: ['HR_INTERVIEW', 'TECHNICAL_INTERVIEW', 'FINAL_INTERVIEW'] },
+  { id: 'offer', label: 'Offer', statuses: ['OFFER'] },
+  { id: 'closed', label: 'Closed', statuses: ['REJECTED', 'WITHDRAWN'] },
+] as const satisfies ReadonlyArray<{ id: TrackerGroup; label: string; statuses: readonly ApplicationStatus[] }>
+
+type TrackerQuery = ReturnType<typeof useTracker>
+
 function TrackerCard({ item }: { item: JobApplicationSummary }) {
   return <Card className="bg-white/65 p-3.5 shadow-[0_7px_20px_rgba(91,58,36,.05)] transition hover:-translate-y-0.5 hover:bg-white/80 hover:shadow-[0_10px_24px_rgba(91,58,36,.08)]">
     <Link to={`/applications/${item.id}`} className="block rounded-[9px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
@@ -141,34 +151,64 @@ function TrackerCard({ item }: { item: JobApplicationSummary }) {
   </Card>
 }
 
-function TrackerColumn({ group, label, items }: { group: Exclude<TrackerGroup, 'closed'>; label: string; items: JobApplicationSummary[] }) {
+function trackerItems(query: TrackerQuery) {
+  return query.data?.pages.flatMap(({ items }) => items) ?? []
+}
+
+function trackerTotal(query: TrackerQuery) {
+  return query.data?.pages[0]?.totalElements ?? 0
+}
+
+function TrackerStageContent({ query, label, emptyMessage, gridClass = 'space-y-3' }: { query: TrackerQuery; label: string; emptyMessage: string; gridClass?: string }) {
+  if (query.isPending) return <div role="status" className="grid min-h-40 place-items-center text-sm text-muted-foreground"><span>Loading {label.toLowerCase()}…</span></div>
+  if (query.isError && !query.data) return <div role="alert" className="rounded-[12px] border border-[#8e7968]/25 bg-[#f8f2eb]/90 p-4 text-sm"><p className="font-semibold">{label} could not be loaded</p><p className="mt-1 text-muted-foreground">{query.error.message}</p><Button className="mt-3 border bg-white text-foreground" disabled={query.isFetching} onClick={() => void query.refetch()}>{query.isFetching ? 'Trying again…' : 'Try again'}</Button></div>
+
+  const items = trackerItems(query)
+  return <>
+    {items.length === 0 ? <p className="px-1 py-8 text-center text-sm text-muted-foreground">{emptyMessage}</p> : <div className={gridClass}>{items.map((item) => <TrackerCard key={item.id} item={item} />)}</div>}
+    {query.isFetchNextPageError ? <div role="alert" className="mt-3 rounded-[12px] border border-[#8e7968]/25 bg-[#f8f2eb]/90 p-3 text-sm"><p>More {label.toLowerCase()} applications could not be loaded.</p><Button className="mt-2 border bg-white text-foreground" disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>{query.isFetchingNextPage ? 'Trying again…' : 'Try again'}</Button></div> : query.hasNextPage ? <Button className="mt-3 w-full border bg-white/70 text-foreground shadow-xs hover:bg-white" disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>{query.isFetchingNextPage ? 'Loading more…' : `Load more ${label.toLowerCase()}`}</Button> : null}
+  </>
+}
+
+function TrackerColumn({ group, label, query }: { group: Exclude<TrackerGroup, 'closed'>; label: string; query: TrackerQuery }) {
   const Icon = TRACKER_ICONS[group]
   return <section className="flex min-h-[360px] min-w-0 flex-col rounded-[16px] border border-[#786a5d]/15 bg-white/25 p-3" aria-labelledby={`group-${group}`}>
     <div className="mb-3 flex items-center gap-2 px-1">
       <Icon size={18} strokeWidth={1.6} aria-hidden="true" />
       <h2 id={`group-${group}`} className="font-semibold">{label}</h2>
-      <span className="ml-auto grid min-w-7 place-items-center rounded-[8px] bg-white/55 px-2 py-1 text-xs font-semibold text-muted-foreground">{items.length}</span>
+      <span className="ml-auto grid min-w-7 place-items-center rounded-[8px] bg-white/55 px-2 py-1 text-xs font-semibold text-muted-foreground">{query.data ? trackerTotal(query) : '—'}</span>
     </div>
-    <div className="space-y-3">{items.map((item) => <TrackerCard key={item.id} item={item} />)}</div>
-    {items.length === 0 ? <p className="px-1 py-8 text-center text-sm text-muted-foreground">No applications in this stage.</p> : null}
+    <TrackerStageContent query={query} label={label} emptyMessage="No applications in this stage." />
     <Link to="/applications/new" className="mt-auto flex min-h-11 items-center justify-center gap-2 rounded-[10px] px-3 pt-3 text-sm font-medium text-foreground transition hover:bg-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Plus size={15} aria-hidden="true" /> Add application</Link>
   </section>
 }
 
 export function TrackerPage() {
-  const query = useTracker()
-  const groups = useMemo(() => groupApplications(query.data ?? []), [query.data])
+  const bookmarked = useTracker('bookmarked', TRACKER_STAGES[0].statuses)
+  const applied = useTracker('applied', TRACKER_STAGES[1].statuses)
+  const interview = useTracker('interview', TRACKER_STAGES[2].statuses)
+  const offer = useTracker('offer', TRACKER_STAGES[3].statuses)
+  const closed = useTracker('closed', TRACKER_STAGES[4].statuses)
+  const stages = [bookmarked, applied, interview, offer, closed]
+  const allPending = stages.every(({ isPending }) => isPending)
+  const allEmpty = stages.every((query) => query.isSuccess && trackerTotal(query) === 0)
   return <><PageHeader title="Tracker" description="Track your job applications across every stage." action={<Link to="/applications/new" className={primaryLinkClass}><Plus size={17} /> Add application</Link>} />
-    {query.isPending ? <Spinner label="Loading the complete tracker" /> : query.error ? <ErrorPanel title="Tracker could not be loaded" message={query.error.message} onRetry={() => void query.refetch()} /> : query.data.length === 0 ? <Card className="grid min-h-72 place-items-center bg-white/45 p-8 text-center"><div><h2 className="text-xl font-semibold">Your tracker is empty</h2><p className="mt-2 text-sm text-muted-foreground">Add an application to begin.</p><Link to="/applications/new" className={`${primaryLinkClass} mt-4`}>Add application</Link></div></Card> : <div className="space-y-5">
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{ACTIVE_TRACKER_GROUPS.map((group) => <TrackerColumn key={group.id} group={group.id} label={group.label} items={groups[group.id]} />)}</div>
+    {allPending ? <Spinner label="Loading the complete tracker" /> : allEmpty ? <Card className="grid min-h-72 place-items-center bg-white/45 p-8 text-center"><div><h2 className="text-xl font-semibold">Your tracker is empty</h2><p className="mt-2 text-sm text-muted-foreground">Add an application to begin.</p><Link to="/applications/new" className={`${primaryLinkClass} mt-4`}>Add application</Link></div></Card> : <div className="space-y-5">
+      <p id="tracker-scroll-hint" className="text-xs text-muted-foreground md:sr-only">Swipe or scroll horizontally to explore application stages.</p>
+      <div role="region" aria-label="Active application stages" aria-describedby="tracker-scroll-hint" tabIndex={0} className="grid max-w-full touch-pan-x auto-cols-[minmax(17rem,85vw)] grid-flow-col gap-3 overflow-x-auto overscroll-x-contain pb-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:grid-flow-row md:grid-cols-2 md:overflow-visible md:pb-0 xl:grid-cols-4">
+        <TrackerColumn group="bookmarked" label="Wishlist" query={bookmarked} />
+        <TrackerColumn group="applied" label="Applied" query={applied} />
+        <TrackerColumn group="interview" label="Interview" query={interview} />
+        <TrackerColumn group="offer" label="Offer" query={offer} />
+      </div>
       <section className="rounded-[16px] border border-[#786a5d]/15 bg-white/25 p-4" aria-labelledby="group-closed">
         <div className="mb-4 flex items-center gap-2">
           <Archive size={18} strokeWidth={1.6} aria-hidden="true" />
           <h2 id="group-closed" className="font-semibold">Closed</h2>
-          <span className="grid min-w-7 place-items-center rounded-[8px] bg-white/55 px-2 py-1 text-xs font-semibold text-muted-foreground">{groups.closed.length}</span>
+          <span className="grid min-w-7 place-items-center rounded-[8px] bg-white/55 px-2 py-1 text-xs font-semibold text-muted-foreground">{closed.data ? trackerTotal(closed) : '—'}</span>
           <p className="ml-auto hidden text-sm text-muted-foreground sm:block">Rejected and withdrawn applications remain available here.</p>
         </div>
-        {groups.closed.length === 0 ? <p className="rounded-[12px] border border-dashed border-[#786a5d]/20 px-4 py-6 text-center text-sm text-muted-foreground">No closed applications.</p> : <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{groups.closed.map((item) => <TrackerCard key={item.id} item={item} />)}</div>}
+        <TrackerStageContent query={closed} label="Closed" emptyMessage="No closed applications." gridClass="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" />
       </section>
     </div>}
   </>
