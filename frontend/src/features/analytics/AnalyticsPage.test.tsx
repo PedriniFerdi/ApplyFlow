@@ -10,6 +10,15 @@ import { clearCsrfToken } from '@/lib/api-client'
 const currentUser = { id: 1, fullName: 'Test User', email: 'test@example.com', emailVerified: true, authenticationMethods: ['PASSWORD'] }
 const summary = (overrides = {}) => ({ totalApplications: 8, appliedApplications: 6, responseCount: 3, responseRate: 50, interviewCount: 2, interviewRate: 33.33, offerCount: 1, offerRate: 16.67, rejectionCount: 2, rejectionRate: 33.33, ...overrides })
 function json(body: unknown, status = 200) { return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }) }
+function detail(
+  input: RequestInfo | URL,
+  responseTime: { sampleSize: number; averageDays: number | null; medianDays: number | null } = { sampleSize: 0, averageDays: null, medianDays: null },
+) {
+  const url = input.toString()
+  if (url.endsWith('/analytics/funnel')) return json({ stages: [] })
+  if (url.includes('/analytics/applications-over-time')) return json({ period: url.endsWith('MONTH') ? 'MONTH' : 'WEEK', buckets: [] })
+  return json(responseTime)
+}
 function renderRoute() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/analytics']}><AuthProvider><App /></AuthProvider></MemoryRouter></QueryClientProvider>)
@@ -44,7 +53,7 @@ describe('AnalyticsPage', () => {
       const url = input.toString()
       if (url.endsWith('/auth/me')) return json(currentUser)
       if (url.endsWith('/analytics/summary')) return ++summaryCalls === 1 ? json({ detail: 'Analytics unavailable' }, 500) : json(summary())
-      return json({ sampleSize: 0, averageDays: null, medianDays: null })
+      return detail(input)
     })
     renderRoute()
     expect(await screen.findByRole('alert')).toHaveTextContent('Analytics unavailable')
@@ -53,7 +62,7 @@ describe('AnalyticsPage', () => {
   })
 
   it('renders five server-backed summary metrics with explicit sent-application denominators', async () => {
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => input.toString().endsWith('/auth/me') ? json(currentUser) : input.toString().endsWith('/analytics/summary') ? json(summary()) : json({ sampleSize: 4, averageDays: 3.5, medianDays: 2 }))
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => input.toString().endsWith('/auth/me') ? json(currentUser) : input.toString().endsWith('/analytics/summary') ? json(summary()) : detail(input, { sampleSize: 4, averageDays: 3.5, medianDays: 2 }))
     renderRoute()
     expect(await screen.findByText('Applications sent')).toBeInTheDocument()
     expect(screen.getByText('Interviews')).toBeInTheDocument()
@@ -68,7 +77,7 @@ describe('AnalyticsPage', () => {
   })
 
   it('uses an em dash for bookmark-only response rate and never fabricates response days', async () => {
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => input.toString().endsWith('/auth/me') ? json(currentUser) : input.toString().endsWith('/analytics/summary') ? json(summary({ totalApplications: 2, appliedApplications: 0, responseCount: 0, responseRate: 0, interviewCount: 0, interviewRate: 0, offerCount: 0, offerRate: 0, rejectionCount: 0, rejectionRate: 0 })) : json({ sampleSize: 0, averageDays: null, medianDays: null }))
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => input.toString().endsWith('/auth/me') ? json(currentUser) : input.toString().endsWith('/analytics/summary') ? json(summary({ totalApplications: 2, appliedApplications: 0, responseCount: 0, responseRate: 0, interviewCount: 0, interviewRate: 0, offerCount: 0, offerRate: 0, rejectionCount: 0, rejectionRate: 0 })) : detail(input))
     renderRoute()
     expect(await screen.findByText('—')).toBeInTheDocument()
     expect(screen.getAllByText('Rate unavailable — no sent applications')).toHaveLength(4)
@@ -77,7 +86,7 @@ describe('AnalyticsPage', () => {
   })
 
   it('does not fabricate zero days when a non-empty response sample has nullable metrics', async () => {
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => input.toString().endsWith('/auth/me') ? json(currentUser) : input.toString().endsWith('/analytics/summary') ? json(summary()) : json({ sampleSize: 3, averageDays: null, medianDays: 2 }))
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => input.toString().endsWith('/auth/me') ? json(currentUser) : input.toString().endsWith('/analytics/summary') ? json(summary()) : detail(input, { sampleSize: 3, averageDays: null, medianDays: 2 }))
     renderRoute()
     expect(await screen.findByText('Complete response-time metrics are unavailable for this sample of 3 measured responses.')).toBeInTheDocument()
     expect(screen.queryByText(/0 days/i)).not.toBeInTheDocument()
@@ -91,6 +100,7 @@ describe('AnalyticsPage', () => {
       const url = input.toString()
       if (url.endsWith('/auth/me')) return json(currentUser)
       if (url.endsWith('/analytics/summary')) return json(summary())
+      if (!url.endsWith('/analytics/response-time')) return detail(input)
       if (++responseCalls === 1) return json({ detail: 'internal diagnostics' }, 500)
       return new Promise((resolve) => { resolveRetry = resolve })
     })
@@ -104,13 +114,17 @@ describe('AnalyticsPage', () => {
     expect(await screen.findAllByText('1 day')).toHaveLength(2)
   })
 
-  it('requests only summary and response time for the overview slice', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => input.toString().endsWith('/auth/me') ? json(currentUser) : input.toString().endsWith('/analytics/summary') ? json(summary()) : json({ sampleSize: 0, averageDays: null, medianDays: null }))
+  it('requests only the overview and progress resources in this slice', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => input.toString().endsWith('/auth/me') ? json(currentUser) : input.toString().endsWith('/analytics/summary') ? json(summary()) : detail(input))
     renderRoute()
     expect(await screen.findByText(/No response-time sample yet/)).toBeInTheDocument()
     const analyticsUrls = fetchMock.mock.calls.map(([input]) => input.toString()).filter((url) => url.includes('/analytics/'))
-    expect(analyticsUrls).toHaveLength(2)
+    expect(analyticsUrls).toHaveLength(4)
     expect(analyticsUrls.some((url) => url.endsWith('/analytics/summary'))).toBe(true)
     expect(analyticsUrls.some((url) => url.endsWith('/analytics/response-time'))).toBe(true)
+    expect(analyticsUrls.some((url) => url.endsWith('/analytics/funnel'))).toBe(true)
+    expect(analyticsUrls.some((url) => url.endsWith('/analytics/applications-over-time?period=WEEK'))).toBe(true)
+    expect(analyticsUrls.some((url) => url.endsWith('/analytics/sources'))).toBe(false)
+    expect(analyticsUrls.some((url) => url.endsWith('/analytics/technologies'))).toBe(false)
   })
 })

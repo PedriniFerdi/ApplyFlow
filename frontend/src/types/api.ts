@@ -149,6 +149,7 @@ export interface CsrfTokenResponse {
 }
 
 export type AnalyticsPeriod = 'WEEK' | 'MONTH'
+export type AnalyticsFunnelStatus = 'APPLIED' | 'RESPONSE_RECEIVED' | 'HR_INTERVIEW' | 'TECHNICAL_INTERVIEW' | 'FINAL_INTERVIEW' | 'OFFER'
 
 export interface AnalyticsSummary {
   totalApplications: number
@@ -164,7 +165,7 @@ export interface AnalyticsSummary {
 }
 
 export interface FunnelAnalytics {
-  stages: Array<{ status: ApplicationStatus; count: number }>
+  stages: Array<{ status: AnalyticsFunnelStatus; count: number }>
 }
 
 export interface ApplicationsOverTime {

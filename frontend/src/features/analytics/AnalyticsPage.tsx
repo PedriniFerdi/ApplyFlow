@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { Button, Card, ErrorPanel, Spinner } from '@/components/ui'
 import type { AnalyticsSummary } from '@/types/api'
 import { useAnalyticsSummary, useResponseTimeAnalytics } from './api'
+import { AnalyticsProgress } from './AnalyticsProgress'
 
 const percentage = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 })
 const decimal = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 })
@@ -51,6 +52,7 @@ function AnalyticsOverview({ summary }: { summary: AnalyticsSummary }) {
       <MetricCard label="Response rate" value={sent === 0 ? '—' : `${percentage.format(summary.responseRate)}%`} detail={sent === 0 ? 'Rate unavailable — no sent applications' : `${summary.responseCount} ${summary.responseCount === 1 ? 'response' : 'responses'} from ${sent} sent ${sent === 1 ? 'application' : 'applications'}`} icon={MessageCircleReply} />
       <MetricCard label="Rejections" value={summary.rejectionCount} detail={rate(summary.rejectionRate, sent)} icon={CircleX} />
     </dl>
+    <AnalyticsProgress />
     <ResponseTimePanel />
   </div>
 }
