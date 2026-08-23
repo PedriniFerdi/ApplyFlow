@@ -14,11 +14,11 @@ function rate(value: number, denominator: number) {
   return denominator === 0 ? 'Rate unavailable — no sent applications' : `${percentage.format(value)}% of ${denominator} sent ${denominator === 1 ? 'application' : 'applications'}`
 }
 
-function MetricCard({ label, value, detail, icon: Icon }: { label: string; value: string | number; detail: string; icon: typeof Send }) {
+function MetricCard({ label, value, detail, icon: Icon, accent }: { label: string; value: string | number; detail: string; icon: typeof Send; accent: string }) {
   return <Card className="min-w-0 p-4 sm:p-5">
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0"><dt className="text-sm font-medium text-muted-foreground">{label}</dt><dd className="mt-2 text-[30px] font-semibold leading-none tracking-[-0.04em]">{value}</dd></div>
-      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#eeeeed] text-foreground"><Icon size={19} strokeWidth={1.7} aria-hidden="true" /></span>
+      <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-full ${accent}`}><Icon size={19} strokeWidth={1.7} aria-hidden="true" /></span>
     </div>
     <p className="mt-3 text-xs leading-5 text-muted-foreground">{detail}</p>
   </Card>
@@ -47,11 +47,11 @@ function AnalyticsOverview({ summary }: { summary: AnalyticsSummary }) {
   const sent = summary.appliedApplications
   return <div className="space-y-5">
     <dl aria-label="Analytics summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-      <MetricCard label="Applications sent" value={sent} detail={`${summary.totalApplications} total ${summary.totalApplications === 1 ? 'application' : 'applications'} tracked`} icon={Send} />
-      <MetricCard label="Interviews" value={summary.interviewCount} detail={rate(summary.interviewRate, sent)} icon={UsersRound} />
-      <MetricCard label="Offers" value={summary.offerCount} detail={rate(summary.offerRate, sent)} icon={Star} />
-      <MetricCard label="Response rate" value={sent === 0 ? '—' : `${percentage.format(summary.responseRate)}%`} detail={sent === 0 ? 'Rate unavailable — no sent applications' : `${summary.responseCount} ${summary.responseCount === 1 ? 'response' : 'responses'} from ${sent} sent ${sent === 1 ? 'application' : 'applications'}`} icon={MessageCircleReply} />
-      <MetricCard label="Rejections" value={summary.rejectionCount} detail={rate(summary.rejectionRate, sent)} icon={CircleX} />
+      <MetricCard label="Applications sent" value={sent} detail={`${summary.totalApplications} total ${summary.totalApplications === 1 ? 'application' : 'applications'} tracked`} icon={Send} accent="bg-[#EEECFF] text-[#5B5CE2]" />
+      <MetricCard label="Interviews" value={summary.interviewCount} detail={rate(summary.interviewRate, sent)} icon={UsersRound} accent="bg-[#E5F7EF] text-[#139C6A]" />
+      <MetricCard label="Offers" value={summary.offerCount} detail={rate(summary.offerRate, sent)} icon={Star} accent="bg-[#FFF3DB] text-[#E79B0A]" />
+      <MetricCard label="Response rate" value={sent === 0 ? '—' : `${percentage.format(summary.responseRate)}%`} detail={sent === 0 ? 'Rate unavailable — no sent applications' : `${summary.responseCount} ${summary.responseCount === 1 ? 'response' : 'responses'} from ${sent} sent ${sent === 1 ? 'application' : 'applications'}`} icon={MessageCircleReply} accent="bg-[#E9F2FF] text-[#2F72E8]" />
+      <MetricCard label="Rejections" value={summary.rejectionCount} detail={rate(summary.rejectionRate, sent)} icon={CircleX} accent="bg-[#FDECEA] text-[#DF4D3D]" />
     </dl>
     <AnalyticsProgress />
     <AnalyticsComparisons />

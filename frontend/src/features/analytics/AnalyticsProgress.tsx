@@ -33,7 +33,7 @@ function TimeSeries({ data }: { data: ApplicationsOverTime }) {
     return `${x},${36 - (applicationCount / max) * 32}`
   }).join(' ')
   return <>
-    <svg aria-hidden="true" viewBox="0 0 100 40" preserveAspectRatio="none" className="h-40 w-full overflow-visible rounded-[10px] bg-muted/40 p-2">
+    <svg aria-hidden="true" viewBox="0 0 100 40" preserveAspectRatio="none" className="h-40 w-full overflow-visible rounded-[10px] bg-muted/40 p-2 text-[#5B5CE2]">
       <polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.25" vectorEffect="non-scaling-stroke" />
       {points.split(' ').map((point) => { const [cx, cy] = point.split(','); return <circle key={point} cx={cx} cy={cy} r="1.2" fill="currentColor" /> })}
     </svg>
@@ -45,7 +45,7 @@ function Milestones({ data }: { data: FunnelAnalytics }) {
   if (data.stages.every(({ count }) => count === 0)) return <p className="text-sm text-muted-foreground">No recorded milestones yet.</p>
   const max = Math.max(1, ...data.stages.map(({ count }) => count))
   return <><p className="mb-4 text-xs leading-5 text-muted-foreground">Counts are recorded milestones, not conversion rates.</p>
-    <div aria-hidden="true" className="space-y-3">{data.stages.map(({ status, count }) => <div key={status}><div className="mb-1 flex justify-between gap-3 text-xs"><span>{milestoneLabels[status]}</span><span className="tabular-nums">{count}</span></div><div className="h-2 rounded-full bg-muted"><div className="h-full rounded-full bg-foreground" style={{ width: `${(count / max) * 100}%` }} /></div></div>)}</div>
+    <div aria-hidden="true" className="space-y-3">{data.stages.map(({ status, count }) => <div key={status}><div className="mb-1 flex justify-between gap-3 text-xs"><span>{milestoneLabels[status]}</span><span className="tabular-nums">{count}</span></div><div className="h-2 rounded-full bg-muted"><div className="h-full rounded-full bg-[#2F72E8]" style={{ width: `${(count / max) * 100}%` }} /></div></div>)}</div>
     <table className="mt-5 w-full text-left text-sm"><caption className="sr-only">Recorded application milestone counts</caption><thead><tr className="border-b"><th scope="col" className="py-2 font-medium">Milestone</th><th scope="col" className="py-2 text-right font-medium">Recorded count</th></tr></thead><tbody>{data.stages.map(({ status, count }) => <tr key={status} className="border-b last:border-0"><th scope="row" className="py-2 font-normal">{milestoneLabels[status]}</th><td className="py-2 text-right tabular-nums">{count}</td></tr>)}</tbody></table>
   </>
 }
