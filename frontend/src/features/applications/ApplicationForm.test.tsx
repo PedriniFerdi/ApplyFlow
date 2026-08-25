@@ -297,4 +297,27 @@ describe('new application URL import', () => {
     expect(screen.getByText('Position title was not available.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Save application' })).toBeEnabled()
   })
+
+  it('keeps form input while an unavailable required catalog retries locally', async () => {
+    const user = userEvent.setup()
+    let sourceAttempts = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input.toString()
+      if (url.endsWith('/sources')) return ++sourceAttempts === 1 ? json({ detail: 'Sources offline' }, 503) : json([{ id: 1, name: 'LinkedIn' }])
+      return catalogResponse(url)
+    })
+    renderForm()
+
+    expect(await screen.findByText('Sources are unavailable.')).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Source' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Save application' })).toBeDisabled()
+    await user.type(screen.getByRole('combobox', { name: 'Company name' }), 'Retained Company')
+    await user.type(screen.getByRole('textbox', { name: 'Position title' }), 'Retained Role')
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Source' })).toBeEnabled())
+    expect(screen.getByRole('combobox', { name: 'Company name' })).toHaveValue('Retained Company')
+    expect(screen.getByRole('textbox', { name: 'Position title' })).toHaveValue('Retained Role')
+    expect(sourceAttempts).toBe(2)
+  })
 })
