@@ -153,6 +153,31 @@ describe('application pages', () => {
     expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled()
   })
 
+  it('keeps successful filter catalogs available while one failed catalog retries locally', async () => {
+    const user = userEvent.setup()
+    const calls = { sources: 0, companies: 0, technologies: 0 }
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input.toString()
+      if (url.endsWith('/auth/me')) return json(currentUser)
+      if (url.includes('/applications?')) return json(emptyPage)
+      if (url.endsWith('/sources')) return ++calls.sources === 1 ? json({ detail: 'Sources unavailable' }, 503) : json([{ id: 1, name: 'LinkedIn' }])
+      if (url.includes('/companies')) { calls.companies += 1; return json([{ id: 7, name: 'Acme' }]) }
+      if (url.endsWith('/technologies')) { calls.technologies += 1; return json([{ id: 3, name: 'Java' }]) }
+      return json([])
+    })
+    renderRoute('/applications')
+
+    await user.click(await screen.findByText('Filters'))
+    expect(await screen.findByText('Source filters are unavailable.')).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Source' })).toBeDisabled()
+    expect(screen.getByRole('combobox', { name: 'Company' })).toBeEnabled()
+    expect(screen.getByRole('combobox', { name: 'Technology' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Source' })).toBeEnabled())
+    expect(calls).toEqual({ sources: 2, companies: 1, technologies: 1 })
+  })
+
   it('renders the four active tracker columns and keeps closed applications visible', async () => {
     const trackerItems: JobApplicationSummary[] = [
       {
