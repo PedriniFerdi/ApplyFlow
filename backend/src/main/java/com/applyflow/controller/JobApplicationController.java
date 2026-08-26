@@ -6,6 +6,7 @@ import java.util.List;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -27,9 +28,13 @@ import com.applyflow.service.JobApplicationService;
 import com.applyflow.security.AuthenticatedUser;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
+
+import static com.applyflow.validation.RequestLimits.STATUSES;
 
 @RestController
 @RequestMapping("/api/applications")
+@Validated
 public class JobApplicationController {
 
     private final JobApplicationService applicationService;
@@ -50,7 +55,7 @@ public class JobApplicationController {
     @GetMapping
     public JobApplicationPageResponse findAll(
             @AuthenticationPrincipal AuthenticatedUser principal,
-            @RequestParam(required = false) List<ApplicationStatus> status,
+            @RequestParam(required = false) @Size(max = STATUSES) List<ApplicationStatus> status,
             @RequestParam(required = false) Long sourceId,
             @RequestParam(required = false) Long companyId,
             @RequestParam(required = false) Long technologyId,

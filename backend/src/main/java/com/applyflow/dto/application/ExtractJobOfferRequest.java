@@ -1,9 +1,11 @@
 package com.applyflow.dto.application;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
+import org.hibernate.validator.constraints.CodePointLength;
+
+import static com.applyflow.validation.RequestLimits.URL;
 
 public record ExtractJobOfferRequest(
-        @NotBlank @Size(max = 1000) String url
+        @NotBlank @CodePointLength(max = URL) String url
 ) {
 }

@@ -31,16 +31,17 @@ import com.applyflow.exception.JobOfferExtractionException;
 import com.applyflow.repository.CompanyRepository;
 import com.applyflow.repository.JobSourceRepository;
 import com.applyflow.exception.RateLimitExceededException;
+import com.applyflow.validation.RequestLimits;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Service
 public class JobOfferExtractionService {
 
-    private static final int TITLE_LIMIT = 180;
-    private static final int COMPANY_LIMIT = 160;
-    private static final int WEBSITE_LIMIT = 500;
-    private static final int LOCATION_LIMIT = 160;
+    private static final int TITLE_LIMIT = RequestLimits.TITLE;
+    private static final int COMPANY_LIMIT = RequestLimits.COMPANY_NAME;
+    private static final int WEBSITE_LIMIT = RequestLimits.WEBSITE;
+    private static final int LOCATION_LIMIT = RequestLimits.LOCATION;
     private static final int LINKEDIN_METADATA_LIMIT = COMPANY_LIMIT + TITLE_LIMIT + LOCATION_LIMIT + 40;
     private static final Pattern LINKEDIN_JOB_TITLE = Pattern.compile("^(.+?) hiring (.+) in (.+) \\| LinkedIn$");
 
@@ -169,7 +170,7 @@ public class JobOfferExtractionService {
         if (metadataTitle == null) metadataTitle = document.title();
         if (metadataTitle == null) return null;
         String normalized = metadataTitle.replaceAll("\\s+", " ").trim();
-        if (normalized.length() > LINKEDIN_METADATA_LIMIT) return null;
+        if (RequestLimits.exceedsCodePoints(normalized, LINKEDIN_METADATA_LIMIT)) return null;
         Matcher matcher = LINKEDIN_JOB_TITLE.matcher(normalized);
         if (!matcher.matches()) return null;
         String companyName = bounded(matcher.group(1), COMPANY_LIMIT);
@@ -336,7 +337,7 @@ public class JobOfferExtractionService {
         if (value == null) return null;
         String normalized = value.replaceAll("\\s+", " ").trim();
         if (normalized.isEmpty()) return null;
-        return normalized.substring(0, Math.min(normalized.length(), maxLength));
+        return RequestLimits.truncateCodePoints(normalized, maxLength);
     }
 
     private void addPart(List<String> parts, String value) {

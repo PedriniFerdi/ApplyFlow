@@ -5,6 +5,7 @@ import java.util.List;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -18,8 +19,12 @@ import com.applyflow.service.CatalogService;
 import com.applyflow.security.AuthenticatedUser;
 
 import jakarta.validation.Valid;
+import org.hibernate.validator.constraints.CodePointLength;
+
+import static com.applyflow.validation.RequestLimits.COMPANY_NAME;
 
 @RestController
+@Validated
 public class CatalogController {
 
     private final CatalogService catalogService;
@@ -31,7 +36,7 @@ public class CatalogController {
     @GetMapping("/api/companies")
     public List<CompanyResponse> companies(
             @AuthenticationPrincipal AuthenticatedUser principal,
-            @RequestParam(required = false) String query
+            @RequestParam(required = false) @CodePointLength(max = COMPANY_NAME) String query
     ) {
         return catalogService.findCompanies(principal.userId(), query);
     }

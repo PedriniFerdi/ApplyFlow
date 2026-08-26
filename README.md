@@ -161,6 +161,25 @@ Application listing supports pagination, status and catalog filters, and control
 
 ## Production-readiness notes
 
+### Public request limits
+
+ApplyFlow rejects oversized input before persistence and returns validation failures as
+`application/problem+json`; values are never silently truncated. Text limits count Unicode
+code points, matching PostgreSQL `char_length` semantics.
+
+| Input | Maximum |
+| --- | ---: |
+| Position title | 180 characters |
+| Job URL / extraction URL | 1,000 characters |
+| Company name, full name, location, or company search | 160 characters |
+| Company website / industry | 500 / 120 characters |
+| Technology name / technologies per application | 100 characters / 50 items |
+| Application notes | 5,000 characters |
+| Salary value / currency | 20 / 3 characters |
+| Email / provider subject / account token | 254 / 255 / 256 characters |
+| Password | 72 characters and 72 UTF-8 bytes |
+| Repeated application statuses | 9 values |
+
 The repository provides a strong application foundation, not a turnkey production deployment. Before public release:
 
 1. Replace every development credential and the sample outbox key with secret-managed production values.

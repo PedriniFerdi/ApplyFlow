@@ -46,6 +46,7 @@ import jakarta.annotation.PreDestroy;
 
 import com.applyflow.exception.BusinessRuleException;
 import com.applyflow.exception.JobOfferExtractionException;
+import com.applyflow.validation.RequestLimits;
 
 @Component
 public class SafeHtmlFetcher {
@@ -129,7 +130,7 @@ public class SafeHtmlFetcher {
     }
 
     URI parseAndValidateUrl(String rawUrl) {
-        if (rawUrl == null || rawUrl.length() > 1000) {
+        if (rawUrl == null || RequestLimits.exceedsCodePoints(rawUrl, RequestLimits.URL)) {
             throw new BusinessRuleException("url must contain at most 1000 characters");
         }
         try {
