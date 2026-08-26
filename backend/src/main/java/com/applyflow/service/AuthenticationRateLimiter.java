@@ -13,7 +13,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import com.applyflow.exception.RateLimitExceededException;
@@ -74,13 +73,6 @@ public class AuthenticationRateLimiter {
 
     public void checkJobOfferExtraction(String ipAddress, Long userId) {
         check("job-offer-extraction", ipAddress, String.valueOf(userId), extractionLimit);
-    }
-
-    @Scheduled(cron = "0 15 * * * *")
-    public void discardExpiredBuckets() {
-        jdbcTemplate.update(
-                "DELETE FROM auth_rate_limits WHERE window_started_at < ?",
-                clock.instant().minus(Duration.ofDays(1)).atOffset(ZoneOffset.UTC));
     }
 
     private void check(String action, String ipAddress, String identity, int limit) {
