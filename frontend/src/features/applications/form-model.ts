@@ -1,16 +1,20 @@
 import { z } from 'zod'
 import { APPLICATION_STATUSES, type ApplicationStatus, type ApplicationWriteRequest, type CompanyType, type CreateApplicationRequest, type JobApplicationDetail, type SalaryPeriod, type WorkMode } from '@/types/api'
 
-const optionalUrl = z.string().max(1000).refine((value) => !value || /^https?:\/\//i.test(value), 'Use an HTTP or HTTPS URL')
+const codePointLimited = (maximum: number) => z.string().refine(
+  (value) => Array.from(value).length <= maximum,
+  `Must contain at most ${maximum} characters`,
+)
+const optionalUrl = (maximum: number) => codePointLimited(maximum).refine((value) => !value || /^https?:\/\//i.test(value), 'Use an HTTP or HTTPS URL')
 
 export const applicationFormSchema = z.object({
-  companyMode: z.enum(['existing', 'new']), companyId: z.string(), newCompanyName: z.string().max(160),
-  newCompanyWebsite: optionalUrl, newCompanyType: z.enum(['STARTUP', 'SCALEUP', 'CORPORATE', 'CONSULTING', 'OTHER']), newCompanyIndustry: z.string().max(120),
-  positionTitle: z.string().trim().min(1, 'Position title is required').max(180), jobUrl: optionalUrl,
+  companyMode: z.enum(['existing', 'new']), companyId: z.string(), newCompanyName: codePointLimited(160),
+  newCompanyWebsite: optionalUrl(500), newCompanyType: z.enum(['STARTUP', 'SCALEUP', 'CORPORATE', 'CONSULTING', 'OTHER']), newCompanyIndustry: codePointLimited(120),
+  positionTitle: codePointLimited(180).pipe(z.string().trim().min(1, 'Position title is required')), jobUrl: optionalUrl(1000),
   appliedDate: z.string(), status: z.enum(APPLICATION_STATUSES), sourceId: z.string().min(1, 'Source is required'),
-  workMode: z.enum(['REMOTE', 'HYBRID', 'ONSITE']), location: z.string().max(160),
-  salaryMin: z.string(), salaryMax: z.string(), currency: z.string().max(3), salaryPeriod: z.union([z.enum(['YEARLY', 'MONTHLY', 'HOURLY']), z.literal('')]),
-  notes: z.string(), technologyIds: z.array(z.string()),
+  workMode: z.enum(['REMOTE', 'HYBRID', 'ONSITE']), location: codePointLimited(160),
+  salaryMin: z.string().max(20), salaryMax: z.string().max(20), currency: z.string().max(3), salaryPeriod: z.union([z.enum(['YEARLY', 'MONTHLY', 'HOURLY']), z.literal('')]),
+  notes: codePointLimited(5000), technologyIds: z.array(z.string()).max(50),
 }).superRefine((values, ctx) => {
   if (values.companyMode === 'existing' && !values.companyId) ctx.addIssue({ code: 'custom', path: ['companyId'], message: 'Select a company' })
   if (values.companyMode === 'new' && !values.newCompanyName.trim()) ctx.addIssue({ code: 'custom', path: ['newCompanyName'], message: 'Company name is required' })

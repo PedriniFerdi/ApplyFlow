@@ -4,12 +4,14 @@ import com.applyflow.entity.CompanyType;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
+import org.hibernate.validator.constraints.CodePointLength;
+
+import static com.applyflow.validation.RequestLimits.*;
 
 public record NewCompanyRequest(
-        @NotBlank @Size(max = 160) String name,
-        @Size(max = 500) String website,
+        @NotBlank @CodePointLength(max = COMPANY_NAME) String name,
+        @CodePointLength(max = WEBSITE) String website,
         @NotNull CompanyType companyType,
-        @Size(max = 120) String industry
+        @CodePointLength(max = INDUSTRY) String industry
 ) {
 }

@@ -9,6 +9,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -146,6 +147,7 @@ class JobApplicationApiIntegrationTest {
                       'ck_job_applications_salary_non_negative',
                       'ck_job_applications_salary_range',
                       'ck_job_applications_salary_metadata',
+                      'ck_job_applications_notes_length',
                       'ck_status_history_status'
                   )
                 ORDER BY conname
@@ -174,7 +176,7 @@ class JobApplicationApiIntegrationTest {
                 "ix_status_history_application_changed_at",
                 "ix_status_history_status_application",
                 "ix_application_technologies_technology_application");
-        assertThat(checks).hasSize(8);
+        assertThat(checks).hasSize(9);
         assertThat(cascadingForeignKeys).containsExactly(
                 "fk_account_email_outbox_token",
                 "fk_account_tokens_user",
@@ -1247,6 +1249,40 @@ class JobApplicationApiIntegrationTest {
                 "/api/applications", missingRequired, JsonNode.class);
         assertProblem(validation, HttpStatus.BAD_REQUEST, "Validation failed");
         assertThat(validation.getBody().path("errors").has("positionTitle")).isTrue();
+    }
+
+    @Test
+    void enforcesUnicodeAndCollectionRequestBoundsWithoutTruncation() {
+        long sourceId = findCatalogId("/api/sources", "LinkedIn");
+        long technologyId = findCatalogId("/api/technologies", "Java");
+        String atLimit = "🚀".repeat(5000);
+        ObjectNode accepted = validCreateRequest(sourceId, technologyId).put("notes", atLimit);
+        JsonNode created = createApplication(accepted);
+        assertThat(created.path("notes").asText()).isEqualTo(atLimit);
+
+        ObjectNode oversized = validCreateRequest(sourceId, technologyId).put("notes", atLimit + "🚀");
+        ResponseEntity<JsonNode> response = rest.postForEntity("/api/applications", oversized, JsonNode.class);
+        assertProblem(response, HttpStatus.BAD_REQUEST, "Validation failed");
+        assertThat(response.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_PROBLEM_JSON);
+        assertThat(response.getBody().path("errors").has("notes")).isTrue();
+
+        ArrayNode technologies = objectMapper.createArrayNode();
+        for (int index = 0; index < 51; index++) technologies.add(technologyId);
+        oversized = validCreateRequest(sourceId, technologyId).set("technologyIds", technologies);
+        response = rest.postForEntity("/api/applications", oversized, JsonNode.class);
+        assertProblem(response, HttpStatus.BAD_REQUEST, "Validation failed");
+        assertThat(response.getBody().path("errors").has("technologyIds")).isTrue();
+
+        ResponseEntity<JsonNode> companyQuery = rest.getForEntity(
+                "/api/companies?query=" + "a".repeat(161), JsonNode.class);
+        assertProblem(companyQuery, HttpStatus.BAD_REQUEST, "Validation failed");
+        assertThat(companyQuery.getBody().path("errors").has("query")).isTrue();
+
+        String repeatedStatuses = String.join("&", Collections.nCopies(10, "status=BOOKMARKED"));
+        ResponseEntity<JsonNode> statuses = rest.getForEntity(
+                "/api/applications?" + repeatedStatuses, JsonNode.class);
+        assertProblem(statuses, HttpStatus.BAD_REQUEST, "Validation failed");
+        assertThat(statuses.getBody().path("errors").has("status")).isTrue();
     }
 
     private long findCatalogId(String path, String name) {

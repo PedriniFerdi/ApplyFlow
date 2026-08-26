@@ -11,6 +11,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.applyflow.entity.UserAccount;
 import com.applyflow.repository.AccountTokenRepository;
 import com.applyflow.repository.UserAccountRepository;
+import com.applyflow.validation.RequestLimits;
 
 @Service
 public class OidcAccountService {
@@ -36,8 +37,13 @@ public class OidcAccountService {
         if (subject == null || subject.isBlank() || !emailVerified) {
             throw oauthError("unverified_email");
         }
+        if (RequestLimits.exceedsCodePoints(subject, RequestLimits.PROVIDER_USER_ID)
+                || RequestLimits.exceedsCodePoints(rawEmail, RequestLimits.EMAIL)
+                || RequestLimits.exceedsCodePoints(rawName, RequestLimits.FULL_NAME)) {
+            throw oauthError("invalid_claims");
+        }
         String email = AuthenticationService.normalizeEmail(rawEmail);
-        if (email.isBlank()) {
+        if (email.isBlank() || RequestLimits.exceedsCodePoints(email, RequestLimits.EMAIL)) {
             throw oauthError("missing_email");
         }
         try {
@@ -60,6 +66,9 @@ public class OidcAccountService {
             int separator = email.indexOf('@');
             String emailName = separator > 0 ? email.substring(0, separator) : email;
             String name = rawName == null || rawName.isBlank() ? emailName : rawName.trim();
+            if (RequestLimits.exceedsCodePoints(name, RequestLimits.FULL_NAME)) {
+                throw oauthError("invalid_claims");
+            }
             return userRepository.saveAndFlush(UserAccount.fromGoogle(name, email, subject, clock.instant()));
         }
         if (byEmail.getGoogleSubject() != null && !subject.equals(byEmail.getGoogleSubject())) {

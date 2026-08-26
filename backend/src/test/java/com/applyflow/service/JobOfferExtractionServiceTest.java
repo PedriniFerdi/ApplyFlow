@@ -36,6 +36,17 @@ class JobOfferExtractionServiceTest {
             null, new ObjectMapper(), companies, sources, 2);
 
     @Test
+    void boundsSuggestionsByUnicodeCodePointWithoutSplittingAstralCharacters() {
+        when(sources.findByNameIgnoreCase("Company Website")).thenReturn(Optional.empty());
+        String title = "🚀".repeat(181);
+        JobOfferExtractionResponse result = service.parse(
+                7L, URI.create("https://example.com/job"), Jsoup.parse("<title>" + title + "</title>"));
+
+        assertThat(result.positionTitle()).isEqualTo("🚀".repeat(180));
+        assertThat(result.positionTitle().codePointCount(0, result.positionTitle().length())).isEqualTo(180);
+    }
+
+    @Test
     void extractsBoundedStructuredJobPostingFieldsWithoutInferringNotesOrTechnologies() {
         when(companies.findAllByOwnerIdAndNameIgnoreCaseOrderByIdAsc(7L, "Acme")).thenReturn(List.of());
         JobSource linkedIn = mock(JobSource.class);

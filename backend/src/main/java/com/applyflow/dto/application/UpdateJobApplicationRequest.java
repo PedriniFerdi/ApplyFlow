@@ -13,21 +13,24 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
+import org.hibernate.validator.constraints.CodePointLength;
+
+import static com.applyflow.validation.RequestLimits.*;
 
 public record UpdateJobApplicationRequest(
         @Positive Long companyId,
         @Valid NewCompanyRequest newCompany,
-        @NotBlank @Size(max = 180) String positionTitle,
-        @Size(max = 1000) String jobUrl,
+        @NotBlank @CodePointLength(max = TITLE) String positionTitle,
+        @CodePointLength(max = URL) String jobUrl,
         LocalDate appliedDate,
         @NotNull @Positive Long sourceId,
         @NotNull WorkMode workMode,
-        @Size(max = 160) String location,
-        @JsonDeserialize(using = StrictDecimalStringDeserializer.class) String salaryMin,
-        @JsonDeserialize(using = StrictDecimalStringDeserializer.class) String salaryMax,
-        String currency,
+        @CodePointLength(max = LOCATION) String location,
+        @Size(max = SALARY) @JsonDeserialize(using = StrictDecimalStringDeserializer.class) String salaryMin,
+        @Size(max = SALARY) @JsonDeserialize(using = StrictDecimalStringDeserializer.class) String salaryMax,
+        @Size(max = RAW_CURRENCY) String currency,
         SalaryPeriod salaryPeriod,
-        String notes,
-        @NotNull List<@Positive Long> technologyIds
+        @CodePointLength(max = NOTES) String notes,
+        @NotNull @Size(max = TECHNOLOGIES) List<@Positive Long> technologyIds
 ) {
 }
