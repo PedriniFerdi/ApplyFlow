@@ -66,4 +66,24 @@ describe('application form model', () => {
     const values = { ...applicationFormDefaults(), companyId: '4', positionTitle: 'Engineer', sourceId: '2', salaryMin: '100000000000000000.00', currency: 'USD', salaryPeriod: 'YEARLY' as const }
     expect(applicationFormSchema.safeParse(values).success).toBe(false)
   })
+
+  it('counts astral characters as one persisted character at request boundaries', () => {
+    const base = { ...applicationFormDefaults(), companyId: '4', sourceId: '2' }
+    expect(applicationFormSchema.safeParse({ ...base, positionTitle: '🚀'.repeat(180), notes: '🚀'.repeat(5000) }).success).toBe(true)
+    expect(applicationFormSchema.safeParse({ ...base, positionTitle: '🚀'.repeat(181) }).success).toBe(false)
+    expect(applicationFormSchema.safeParse({ ...base, positionTitle: 'Engineer', notes: '🚀'.repeat(5001) }).success).toBe(false)
+  })
+
+  it('bounds technology selections and salary request strings', () => {
+    const base = { ...applicationFormDefaults(), companyId: '4', positionTitle: 'Engineer', sourceId: '2' }
+    expect(applicationFormSchema.safeParse({ ...base, technologyIds: Array.from({ length: 50 }, (_, index) => String(index)) }).success).toBe(true)
+    expect(applicationFormSchema.safeParse({ ...base, technologyIds: Array.from({ length: 51 }, (_, index) => String(index)) }).success).toBe(false)
+    expect(applicationFormSchema.safeParse({ ...base, salaryMin: '1'.repeat(21) }).success).toBe(false)
+  })
+
+  it('uses distinct Unicode code-point limits for company and job URLs', () => {
+    const base = { ...applicationFormDefaults(), companyId: '4', positionTitle: 'Engineer', sourceId: '2' }
+    expect(applicationFormSchema.safeParse({ ...base, newCompanyWebsite: 'https://' + '🚀'.repeat(492), jobUrl: 'https://' + '🚀'.repeat(992) }).success).toBe(true)
+    expect(applicationFormSchema.safeParse({ ...base, newCompanyWebsite: 'https://' + '🚀'.repeat(493), jobUrl: 'https://' + '🚀'.repeat(993) }).success).toBe(false)
+  })
 })

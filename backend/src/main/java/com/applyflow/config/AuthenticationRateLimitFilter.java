@@ -1,6 +1,7 @@
 package com.applyflow.config;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -11,6 +12,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import com.applyflow.exception.RateLimitExceededException;
 import com.applyflow.service.AuthenticationRateLimiter;
 import com.applyflow.service.AuthenticationService;
+import com.applyflow.validation.RequestLimits;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -35,6 +37,14 @@ public class AuthenticationRateLimitFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
+        String password = request.getParameter("password");
+        if (RequestLimits.exceedsCodePoints(request.getParameter("email"), RequestLimits.EMAIL)
+                || RequestLimits.exceedsCodePoints(password, RequestLimits.PASSWORD)
+                || password != null && password.getBytes(StandardCharsets.UTF_8).length > RequestLimits.PASSWORD) {
+            SecurityProblemWriter.write(response, HttpStatus.BAD_REQUEST.value(),
+                    "Validation failed", "One or more login fields are invalid");
+            return;
+        }
         try {
             rateLimiter.checkLogin(request.getRemoteAddr(), AuthenticationService.normalizeEmail(request.getParameter("email")));
             chain.doFilter(request, response);

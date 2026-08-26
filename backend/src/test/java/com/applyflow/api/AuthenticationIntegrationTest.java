@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -359,6 +360,35 @@ class AuthenticationIntegrationTest {
                 "second-subject", "conflict@example.com", true, "Conflict"))
                 .isInstanceOf(OAuth2AuthenticationException.class);
         assertThat(userRepository.count()).isOne();
+    }
+
+    @Test
+    void rejectsOversizedCredentialsAndProviderClaimsBeforePersistence() throws Exception {
+        mockMvc.perform(login("a".repeat(255), "password", false))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentType())
+                        .isEqualTo(MediaType.APPLICATION_PROBLEM_JSON_VALUE));
+
+        mockMvc.perform(register("Bounded User", "bounded@example.com", "a".repeat(73)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.password").exists());
+
+        assertThatThrownBy(() -> oidcAccountService.reconcile(
+                "s".repeat(256), "bounded-provider@example.com", true, "Bounded Provider"))
+                .isInstanceOf(OAuth2AuthenticationException.class);
+        assertThat(userRepository.count()).isZero();
+    }
+
+    @Test
+    void rejectsCurrentPasswordsBeyondTheBcryptByteBoundaryWithoutTruncationEquivalence() throws Exception {
+        String boundaryPassword = "é".repeat(36);
+        registerAndVerify("Bcrypt Boundary", "bcrypt-boundary@example.com", boundaryPassword);
+        Cookie session = mockMvc.perform(login("bcrypt-boundary@example.com", boundaryPassword, false)).andExpect(status().isOk()).andReturn().getResponse().getCookie("APPLYFLOW_SESSION");
+        String body = "{\"currentPassword\":\"" + boundaryPassword + "x\",\"password\":\"new-password-value\",\"passwordConfirmation\":\"new-password-value\"}";
+        mockMvc.perform(put("/api/auth/password").with(csrf()).cookie(session)
+                        .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isBadRequest()).andExpect(jsonPath("$.title").value("Invalid request"));
+        mockMvc.perform(put("/api/auth/password").with(csrf()).cookie(session)
+                        .contentType(MediaType.APPLICATION_JSON).content(body.replace(boundaryPassword + "x", boundaryPassword))).andExpect(status().isNoContent());
     }
 
     private void registerAndVerify(String name, String email, String password) throws Exception {

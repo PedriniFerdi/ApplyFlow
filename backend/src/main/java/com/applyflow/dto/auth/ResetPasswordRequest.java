@@ -2,10 +2,13 @@ package com.applyflow.dto.auth;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import org.hibernate.validator.constraints.CodePointLength;
+
+import static com.applyflow.validation.RequestLimits.*;
 
 public record ResetPasswordRequest(
-        @NotBlank @Size(max = 256) String token,
-        @NotBlank String password,
-        @NotBlank String passwordConfirmation
+        @NotBlank @Size(max = TOKEN) String token,
+        @NotBlank @CodePointLength(max = PASSWORD) String password,
+        @NotBlank @CodePointLength(max = PASSWORD) String passwordConfirmation
 ) {
 }

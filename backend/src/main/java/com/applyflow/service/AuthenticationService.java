@@ -23,6 +23,7 @@ import com.applyflow.exception.BusinessRuleException;
 import com.applyflow.exception.ResourceNotFoundException;
 import com.applyflow.repository.AccountTokenRepository;
 import com.applyflow.repository.UserAccountRepository;
+import com.applyflow.validation.RequestLimits;
 
 @Service
 public class AuthenticationService {
@@ -136,6 +137,7 @@ public class AuthenticationService {
             String currentSessionId
     ) {
         validatePasswords(request.password(), request.passwordConfirmation());
+        validateBcryptLength(request.currentPassword());
         UserAccount user = requireUserForUpdate(userId);
         if (!user.hasPassword() || !passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
             throw new BadCredentialsException("Invalid credentials");
@@ -166,7 +168,7 @@ public class AuthenticationService {
 
     private String normalizeFullName(String fullName) {
         String normalized = fullName == null ? "" : fullName.trim().replaceAll("\\s+", " ");
-        if (normalized.isEmpty() || normalized.length() > 160) {
+        if (normalized.isEmpty() || RequestLimits.exceedsCodePoints(normalized, RequestLimits.FULL_NAME)) {
             throw new BusinessRuleException("Full name is invalid");
         }
         return normalized;
@@ -176,8 +178,15 @@ public class AuthenticationService {
         if (!password.equals(confirmation)) {
             throw new BusinessRuleException("Password confirmation does not match");
         }
-        int byteLength = password.getBytes(StandardCharsets.UTF_8).length;
-        if (password.length() < 12 || byteLength > 72) {
+        int characterLength = password.codePointCount(0, password.length());
+        if (characterLength < 12) {
+            throw new BusinessRuleException("Password must be at least 12 characters and at most 72 UTF-8 bytes");
+        }
+        validateBcryptLength(password);
+    }
+
+    private void validateBcryptLength(String password) {
+        if (password.getBytes(StandardCharsets.UTF_8).length > RequestLimits.PASSWORD) {
             throw new BusinessRuleException("Password must be at least 12 characters and at most 72 UTF-8 bytes");
         }
     }

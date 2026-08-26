@@ -2,7 +2,9 @@ package com.applyflow.dto.auth;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
+import org.hibernate.validator.constraints.CodePointLength;
 
-public record EmailRequest(@NotBlank @Email @Size(max = 254) String email) {
+import static com.applyflow.validation.RequestLimits.EMAIL;
+
+public record EmailRequest(@NotBlank @Email @CodePointLength(max = EMAIL) String email) {
 }
