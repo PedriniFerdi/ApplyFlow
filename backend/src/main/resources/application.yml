@@ -52,7 +52,7 @@ spring:
 
 server:
   port: ${PORT:8080}
-  forward-headers-strategy: framework
+  forward-headers-strategy: none
   servlet:
     session:
       cookie:
@@ -86,6 +86,9 @@ app:
     token-cooldown: ${ACCOUNT_TOKEN_COOLDOWN:1m}
     remember-me: ${REMEMBER_ME_DURATION:30d}
   security:
+    trusted-proxies:
+      mode: ${TRUSTED_PROXY_HEADER_MODE:none}
+      cidrs: ${TRUSTED_PROXY_CIDRS:}
     rate-limit:
       window: ${AUTH_RATE_LIMIT_WINDOW:PT15M}
       login-limit: ${AUTH_LOGIN_RATE_LIMIT:10}

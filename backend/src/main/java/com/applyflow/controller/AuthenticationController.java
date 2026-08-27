@@ -19,6 +19,7 @@ import com.applyflow.dto.auth.RegisterRequest;
 import com.applyflow.dto.auth.ResetPasswordRequest;
 import com.applyflow.dto.auth.TokenRequest;
 import com.applyflow.security.AuthenticatedUser;
+import com.applyflow.security.TrustedClientIpResolver;
 import com.applyflow.service.AuthenticationService;
 import com.applyflow.service.AuthenticationRateLimiter;
 
@@ -31,10 +32,13 @@ public class AuthenticationController {
 
     private final AuthenticationService authenticationService;
     private final AuthenticationRateLimiter rateLimiter;
+    private final TrustedClientIpResolver clientIpResolver;
 
-    public AuthenticationController(AuthenticationService authenticationService, AuthenticationRateLimiter rateLimiter) {
+    public AuthenticationController(AuthenticationService authenticationService, AuthenticationRateLimiter rateLimiter,
+            TrustedClientIpResolver clientIpResolver) {
         this.authenticationService = authenticationService;
         this.rateLimiter = rateLimiter;
+        this.clientIpResolver = clientIpResolver;
     }
 
     @GetMapping("/csrf")
@@ -44,7 +48,7 @@ public class AuthenticationController {
 
     @PostMapping("/register")
     public ResponseEntity<GenericMessageResponse> register(@Valid @RequestBody RegisterRequest request, HttpServletRequest servletRequest) {
-        rateLimiter.checkRegister(servletRequest.getRemoteAddr(), AuthenticationService.normalizeEmail(request.email()));
+        rateLimiter.checkRegister(clientIpResolver.resolve(servletRequest), AuthenticationService.normalizeEmail(request.email()));
         authenticationService.register(request);
         return ResponseEntity.accepted().body(
                 new GenericMessageResponse(AuthenticationService.GENERIC_REGISTRATION_MESSAGE));
@@ -52,7 +56,7 @@ public class AuthenticationController {
 
     @PostMapping("/email-verification/resend")
     public ResponseEntity<GenericMessageResponse> resend(@Valid @RequestBody EmailRequest request, HttpServletRequest servletRequest) {
-        rateLimiter.checkVerificationResend(servletRequest.getRemoteAddr(), AuthenticationService.normalizeEmail(request.email()));
+        rateLimiter.checkVerificationResend(clientIpResolver.resolve(servletRequest), AuthenticationService.normalizeEmail(request.email()));
         authenticationService.resendVerification(request.email());
         return ResponseEntity.accepted().body(
                 new GenericMessageResponse(AuthenticationService.GENERIC_RECOVERY_MESSAGE));
@@ -71,7 +75,7 @@ public class AuthenticationController {
 
     @PostMapping("/password/forgot")
     public ResponseEntity<GenericMessageResponse> forgotPassword(@Valid @RequestBody EmailRequest request, HttpServletRequest servletRequest) {
-        rateLimiter.checkPasswordRecovery(servletRequest.getRemoteAddr(), AuthenticationService.normalizeEmail(request.email()));
+        rateLimiter.checkPasswordRecovery(clientIpResolver.resolve(servletRequest), AuthenticationService.normalizeEmail(request.email()));
         authenticationService.requestPasswordHelp(request.email());
         return ResponseEntity.accepted().body(
                 new GenericMessageResponse(AuthenticationService.GENERIC_RECOVERY_MESSAGE));
@@ -88,7 +92,7 @@ public class AuthenticationController {
 
     @PostMapping("/password/reset")
     public ResponseEntity<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest request, HttpServletRequest servletRequest) {
-        rateLimiter.checkPasswordReset(servletRequest.getRemoteAddr(), request.token());
+        rateLimiter.checkPasswordReset(clientIpResolver.resolve(servletRequest), request.token());
         authenticationService.resetPassword(request);
         return ResponseEntity.noContent().build();
     }

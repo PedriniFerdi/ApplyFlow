@@ -159,6 +159,14 @@ Application listing supports pagination, status and catalog filters, and control
 - Credentialed CORS uses configured exact origins, session cookies are HTTP-only, and the production profile requires secure transport with HSTS.
 - Authentication and job-offer extraction have application-level rate limits. URL extraction also has configured redirect, timeout, response-size, and concurrency limits.
 
+### Trusted proxy contract
+
+Spring forwarded-header rewriting is disabled, so the servlet peer address always identifies the immediate connection. By default, `TRUSTED_PROXY_HEADER_MODE=none` trusts no forwarding header. A deployment behind a proxy must choose exactly one mode (`forwarded` or `x-forwarded-for`) and set `TRUSTED_PROXY_CIDRS` to the explicit CIDRs of every trusted proxy hop. Do not add private, loopback, or provider-wide ranges unless those exact networks are controlled proxy peers. The backend must not be directly reachable around that trusted edge.
+
+Production currently requires TLS to the servlet/backend: use TLS passthrough or an HTTPS upstream. Edge TLS termination with a plain HTTP upstream is unsupported: secure-request enforcement remains enabled and, without framework forwarding, that topology causes HTTPS redirect loops.
+
+Because proxy headers do not rewrite the application base URL, production must set `GOOGLE_REDIRECT_URI` to the exact public callback, for example `https://api.example.com/login/oauth2/code/google`, and register the same URI with Google.
+
 ## Production-readiness notes
 
 ### Public request limits
