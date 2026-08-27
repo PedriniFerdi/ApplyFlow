@@ -12,6 +12,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import com.applyflow.exception.RateLimitExceededException;
 import com.applyflow.service.AuthenticationRateLimiter;
 import com.applyflow.service.AuthenticationService;
+import com.applyflow.security.TrustedClientIpResolver;
 import com.applyflow.validation.RequestLimits;
 
 import jakarta.servlet.FilterChain;
@@ -24,9 +25,11 @@ public class AuthenticationRateLimitFilter extends OncePerRequestFilter {
 
     private final AntPathRequestMatcher login = new AntPathRequestMatcher("/api/auth/login", HttpMethod.POST.name());
     private final AuthenticationRateLimiter rateLimiter;
+    private final TrustedClientIpResolver clientIpResolver;
 
-    public AuthenticationRateLimitFilter(AuthenticationRateLimiter rateLimiter) {
+    public AuthenticationRateLimitFilter(AuthenticationRateLimiter rateLimiter, TrustedClientIpResolver clientIpResolver) {
         this.rateLimiter = rateLimiter;
+        this.clientIpResolver = clientIpResolver;
     }
 
     @Override
@@ -46,7 +49,7 @@ public class AuthenticationRateLimitFilter extends OncePerRequestFilter {
             return;
         }
         try {
-            rateLimiter.checkLogin(request.getRemoteAddr(), AuthenticationService.normalizeEmail(request.getParameter("email")));
+            rateLimiter.checkLogin(clientIpResolver.resolve(request), AuthenticationService.normalizeEmail(request.getParameter("email")));
             chain.doFilter(request, response);
         } catch (RateLimitExceededException exception) {
             response.setHeader("Retry-After", Long.toString(exception.getRetryAfterSeconds()));

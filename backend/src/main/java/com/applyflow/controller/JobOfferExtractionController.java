@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.applyflow.dto.application.ExtractJobOfferRequest;
 import com.applyflow.dto.application.JobOfferExtractionResponse;
 import com.applyflow.security.AuthenticatedUser;
+import com.applyflow.security.TrustedClientIpResolver;
 import com.applyflow.service.AuthenticationRateLimiter;
 import com.applyflow.service.JobOfferExtractionService;
 
@@ -21,13 +22,16 @@ public class JobOfferExtractionController {
 
     private final JobOfferExtractionService extractionService;
     private final AuthenticationRateLimiter rateLimiter;
+    private final TrustedClientIpResolver clientIpResolver;
 
     public JobOfferExtractionController(
             JobOfferExtractionService extractionService,
-            AuthenticationRateLimiter rateLimiter
+            AuthenticationRateLimiter rateLimiter,
+            TrustedClientIpResolver clientIpResolver
     ) {
         this.extractionService = extractionService;
         this.rateLimiter = rateLimiter;
+        this.clientIpResolver = clientIpResolver;
     }
 
     @PostMapping("/extract")
@@ -36,7 +40,7 @@ public class JobOfferExtractionController {
             HttpServletRequest servletRequest,
             @Valid @RequestBody ExtractJobOfferRequest request
     ) {
-        rateLimiter.checkJobOfferExtraction(servletRequest.getRemoteAddr(), principal.userId());
+        rateLimiter.checkJobOfferExtraction(clientIpResolver.resolve(servletRequest), principal.userId());
         return extractionService.extract(principal.userId(), request.url());
     }
 }

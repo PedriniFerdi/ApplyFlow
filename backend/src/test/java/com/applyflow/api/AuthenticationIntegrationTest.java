@@ -69,6 +69,8 @@ class AuthenticationIntegrationTest {
         registry.add("app.mail.delivery-enabled", () -> true);
         // Exclude the scheduled bean entirely; outbox tests drive distinct processors explicitly.
         registry.add("app.mail.outbox.scheduling-enabled", () -> false);
+        registry.add("app.security.trusted-proxies.mode", () -> "x-forwarded-for");
+        registry.add("app.security.trusted-proxies.cidrs", () -> "10.0.0.0/24");
     }
 
     @Autowired
@@ -184,6 +186,25 @@ class AuthenticationIntegrationTest {
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.title").value("Too many attempts"))
                 .andExpect(result -> assertThat(result.getResponse().getHeader("Retry-After")).isNotBlank());
+    }
+
+    @Test
+    void forgedHeadersCannotSplitAnUntrustedPeersLoginIpBucket() throws Exception {
+        for (int attempt = 0; attempt < 11; attempt++) {
+            MvcResult result = mockMvc.perform(login("forged-" + attempt + "@example.com", "wrong-password", false)
+                            .servletPath("/api/auth/login")
+                            .with(remoteAddress("203.0.113.9"))
+                            .header("Forwarded", "for=198.51.100." + attempt)
+                            .header("X-Forwarded-For", "192.0.2." + attempt))
+                    .andExpect(attempt < 10 ? status().isUnauthorized() : status().isTooManyRequests())
+                    .andReturn();
+            if (attempt == 10) {
+                assertThat(result.getResponse().getHeader("Retry-After")).isNotBlank();
+            }
+        }
+        assertThat(jdbcTemplate.queryForList(
+                "SELECT attempts FROM auth_rate_limits WHERE bucket_key LIKE 'login:ip:%'", Integer.class))
+                .containsExactly(11);
     }
 
     @Test
