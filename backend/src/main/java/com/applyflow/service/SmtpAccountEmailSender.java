@@ -57,21 +57,29 @@ public class SmtpAccountEmailSender implements AccountEmailSender {
             case EMAIL_VERIFICATION -> "Verify your ApplyFlow email";
             case PASSWORD_RESET -> "Reset your ApplyFlow password";
             case PASSWORD_SETUP -> "Set your ApplyFlow password";
+            case ACCOUNT_DELETION -> "Confirm deletion of your ApplyFlow account";
         };
     }
 
     private String body(String fullName, AccountTokenPurpose purpose, String rawToken) {
         String path = switch (purpose) {
-            case EMAIL_VERIFICATION -> "/verify-email?token=";
-            case PASSWORD_RESET, PASSWORD_SETUP -> "/reset-password?token=";
+            case EMAIL_VERIFICATION -> "/verify-email?token=" + rawToken;
+            case PASSWORD_RESET, PASSWORD_SETUP -> "/reset-password?token=" + rawToken;
+            case ACCOUNT_DELETION -> "/settings/security";
         };
         String action = switch (purpose) {
             case EMAIL_VERIFICATION -> "verify your email";
             case PASSWORD_RESET -> "reset your password";
             case PASSWORD_SETUP -> "set a password for your account";
+            case ACCOUNT_DELETION -> "confirm permanent account deletion";
         };
+        String confirmation = purpose == AccountTokenPurpose.ACCOUNT_DELETION
+                ? "\n\nSign in to the same ApplyFlow account and enter this one-time confirmation code:\n" + rawToken
+                    + "\n\nThe code expires shortly. Only submit it if you want to permanently delete your account and its data."
+                    + " Requesting this code does not delete anything."
+                : "";
         return "Hello " + fullName + ",\n\nUse this secure link to " + action + ":\n"
-                + frontendUrl + path + rawToken
+                + frontendUrl + path + confirmation
                 + "\n\nIf you did not request this, you can ignore this email.";
     }
 }
