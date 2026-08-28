@@ -57,7 +57,7 @@ public class OidcAccountService {
     }
 
     private UserAccount reconcileTransaction(String subject, String email, String rawName) {
-        UserAccount bySubject = userRepository.findByGoogleSubject(subject).orElse(null);
+        UserAccount bySubject = userRepository.findByGoogleSubjectForUpdate(subject).orElse(null);
         if (bySubject != null) {
             return bySubject;
         }

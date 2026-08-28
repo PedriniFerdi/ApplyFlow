@@ -13,6 +13,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.io.Serial;
 import java.util.List;
 
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,6 +29,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -54,6 +59,9 @@ class OwnershipIsolationIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private TransactionTemplate transactions;
 
     private Long userA;
     private Long userB;
@@ -140,6 +148,31 @@ class OwnershipIsolationIntegrationTest {
                         .with(authentication(as(userB, "user-b@example.com"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.positionTitle").value("Application B"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"create", "update", "status", "delete", "technology"})
+    void ownedMutationsWaitForTheAccountBeforeLockingDependentRows(String operation) throws Exception {
+        Long company = jdbcTemplate.queryForObject(
+                "SELECT company_id FROM job_applications WHERE id = ?", Long.class, applicationA);
+        String details = "{\"companyId\":" + company + ",\"positionTitle\":\"Updated\",\"sourceId\":" + sourceId
+                + ",\"workMode\":\"REMOTE\",\"technologyIds\":[]}";
+        MockHttpServletRequestBuilder request = switch (operation) {
+            case "create" -> post("/api/applications").content(details.replace("{", "{\"status\":\"BOOKMARKED\","));
+            case "update" -> put("/api/applications/{id}", applicationA).content(details);
+            case "status" -> patch("/api/applications/{id}/status", applicationA)
+                    .content("{\"status\":\"WITHDRAWN\",\"appliedDate\":\""
+                            + java.time.LocalDate.now(java.time.ZoneOffset.UTC).minusDays(1) + "\"}");
+            case "delete" -> delete("/api/applications/{id}", applicationA);
+            case "technology" -> post("/api/technologies").content("{\"name\":\"New technology\"}");
+            default -> throw new IllegalArgumentException(operation);
+        };
+        AccountLockTestSupport.whileUserLocked(jdbcTemplate, transactions, userA,
+                () -> mockMvc.perform(request.with(authentication(as(userA, "user-a@example.com")))
+                                .with(csrf()).contentType(MediaType.APPLICATION_JSON))
+                        .andExpect(status().is2xxSuccessful()).andReturn(),
+                () -> jdbcTemplate.queryForObject(
+                        "SELECT id FROM job_applications WHERE id = ? FOR UPDATE NOWAIT", Long.class, applicationA));
     }
 
     private Long insertUser(String email, String name) {
