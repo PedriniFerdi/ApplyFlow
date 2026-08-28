@@ -1,16 +1,24 @@
 package com.applyflow.api;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.io.Serial;
+import java.io.ByteArrayOutputStream;
+import java.io.FilterOutputStream;
+import java.io.IOException;
 import java.util.List;
 
 import org.junit.jupiter.params.ParameterizedTest;
@@ -31,12 +39,16 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.TransactionDefinition;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 import com.applyflow.security.AuthenticatedUser;
+import com.applyflow.service.AccountExportService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Testcontainers
 @SpringBootTest
@@ -62,6 +74,12 @@ class OwnershipIsolationIntegrationTest {
 
     @Autowired
     private TransactionTemplate transactions;
+
+    @Autowired
+    private AccountExportService exports;
+
+    @Autowired
+    private ObjectMapper mapper;
 
     private Long userA;
     private Long userB;
@@ -173,6 +191,124 @@ class OwnershipIsolationIntegrationTest {
                         .andExpect(status().is2xxSuccessful()).andReturn(),
                 () -> jdbcTemplate.queryForObject(
                         "SELECT id FROM job_applications WHERE id = ? FOR UPDATE NOWAIT", Long.class, applicationA));
+    }
+
+    @Test
+    void exportsCompleteOwnerDataBeyondCursorAndListLimitsWithoutSecrets() throws Exception {
+        jdbcTemplate.update("INSERT INTO companies (owner_id, name, company_type) SELECT ?, 'Owned ' || n, 'OTHER' FROM generate_series(1, 205) n", userA);
+        jdbcTemplate.update("INSERT INTO technologies (owner_id, name) SELECT ?, 'Owned ' || n FROM generate_series(1, 205) n", userA);
+        jdbcTemplate.update("""
+                INSERT INTO job_applications (owner_id, company_id, position_title, status, source_id, work_mode, notes,
+                    salary_min, salary_max, currency, salary_period)
+                SELECT ?, (SELECT MIN(id) FROM companies WHERE owner_id = ?), 'Owned ' || n, 'BOOKMARKED', ?, 'REMOTE',
+                    'Personal notes', 99999999999999999.99, 99999999999999999.99, 'USD', 'YEARLY' FROM generate_series(1, 205) n
+                """, userA, userA, sourceId);
+        jdbcTemplate.update("INSERT INTO application_status_history (application_id, status, changed_at) SELECT id, status, CURRENT_TIMESTAMP FROM job_applications WHERE owner_id = ?", userA);
+        jdbcTemplate.update("""
+                INSERT INTO job_application_technologies (application_id, technology_id)
+                SELECT a.id, t.id FROM job_applications a CROSS JOIN technologies t WHERE a.owner_id = ?
+                    AND t.id IN ((SELECT MIN(id) FROM technologies WHERE owner_id IS NULL), (SELECT MIN(id) FROM technologies WHERE owner_id = ?))
+                """, userA, userA);
+        JsonNode json = exportJson(userA);
+        assertThat(json.path("schemaVersion").asInt()).isEqualTo(1);
+        assertThat(java.time.Instant.parse(json.path("exportedAt").asText())).isBeforeOrEqualTo(java.time.Instant.now());
+        assertThat(json.path("profile").path("id").asLong()).isEqualTo(userA);
+        for (String section : List.of("companies", "applications", "history", "technologies")) {
+            assertThat(json.path(section).size()).as(section).isEqualTo(206);
+        }
+        assertThat(json.path("applicationTechnologies").size()).isEqualTo(412);
+        assertThat(json.path("sources").size()).isOne();
+        assertThat(json.path("applications").get(1).path("salaryMin").isTextual()).isTrue();
+        assertThat(json.path("applications").get(1).path("salaryMin").asText()).isEqualTo("99999999999999999.99");
+        assertThat(json.path("complete").asBoolean()).isTrue();
+        assertThat(json.toString()).doesNotContain("User B", "Company B", "Private B", "Application B", "{noop}unused", "passwordHash", "googleSubject", "token", "session");
+        jdbcTemplate.update("DELETE FROM job_applications WHERE owner_id = ?", userB);
+        JsonNode empty = exportJson(userB);
+        assertThat(empty.path("applications").size()).isZero();
+        assertThat(empty.path("companies").size()).isOne();
+        assertThat(empty.path("technologies").get(0).path("name").asText()).isEqualTo("Private B");
+    }
+
+    @Test
+    void exportUsesOneReadOnlyRepeatableReadSnapshotAcrossSections() throws Exception {
+        jdbcTemplate.update("INSERT INTO application_status_history (application_id, status, changed_at) VALUES (?, 'BOOKMARKED', CURRENT_TIMESTAMP)", applicationA);
+        TransactionTemplate concurrent = new TransactionTemplate(transactions.getTransactionManager());
+        concurrent.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        exports.write(userA, new FilterOutputStream(bytes) {
+            private boolean changed;
+
+            @Override
+            public void write(byte[] buffer, int offset, int length) throws IOException {
+                if (!changed) {
+                    changed = true;
+                    assertThat(jdbcTemplate.queryForObject("SHOW transaction_isolation", String.class)).isEqualTo("repeatable read");
+                    assertThat(jdbcTemplate.queryForObject("SHOW transaction_read_only", String.class)).isEqualTo("on");
+                    concurrent.executeWithoutResult(status -> {
+                        jdbcTemplate.update("UPDATE job_applications SET status = 'WITHDRAWN' WHERE id = ?", applicationA);
+                        jdbcTemplate.update("UPDATE application_status_history SET status = 'WITHDRAWN' WHERE application_id = ?", applicationA);
+                    });
+                }
+                out.write(buffer, offset, length);
+            }
+        });
+        JsonNode json = mapper.readTree(bytes.toByteArray());
+        assertThat(json.path("applications").get(0).path("status").asText()).isEqualTo("BOOKMARKED");
+        assertThat(json.path("history").get(0).path("status").asText()).isEqualTo("BOOKMARKED");
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM job_applications WHERE id = ?", String.class, applicationA)).isEqualTo("WITHDRAWN");
+    }
+
+    @Test
+    void interruptedExportDoesNotCloseOrMarkPartialJsonComplete() {
+        ByteArrayOutputStream partial = new ByteArrayOutputStream();
+        FilterOutputStream disconnected = new FilterOutputStream(partial) {
+            @Override
+            public void write(byte[] buffer, int offset, int length) throws IOException {
+                if (partial.size() > 0) {
+                    throw new IOException("Synthetic disconnect");
+                }
+                out.write(buffer, offset, length);
+            }
+        };
+        assertThatThrownBy(() -> exports.write(userA, disconnected)).isInstanceOf(IOException.class);
+        assertThat(partial.toString(java.nio.charset.StandardCharsets.UTF_8)).doesNotContain("\"complete\"");
+        assertThatThrownBy(() -> mapper.readTree(partial.toByteArray())).isInstanceOf(IOException.class);
+    }
+
+    @Test
+    void exportRequiresAuthenticationAndLimitsAccountAndTrustedClientIpIndependently() throws Exception {
+        mockMvc.perform(get("/api/account/export")).andExpect(status().isUnauthorized());
+        for (int attempt = 0; attempt < 3; attempt++) {
+            exportJson(userA);
+        }
+        mockMvc.perform(exportRequest(userA).with(servlet -> { servlet.setRemoteAddr("198.51.100.9"); return servlet; }))
+                .andExpect(status().isTooManyRequests()).andExpect(header().exists("Retry-After"));
+        mockMvc.perform(exportRequest(userB).header("X-Forwarded-For", "198.51.100.10"))
+                .andExpect(status().isTooManyRequests());
+    }
+
+    private MockHttpServletRequestBuilder exportRequest(Long owner) throws Exception {
+        String email = jdbcTemplate.queryForObject("SELECT email FROM users WHERE id = ?", String.class, owner);
+        var login = mockMvc.perform(post("/api/auth/login").with(csrf())
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("email", email).param("password", "unused"))
+                .andExpect(status().isOk()).andReturn();
+        var cookie = login.getResponse().getCookie("APPLYFLOW_SESSION");
+        assertThat(cookie).isNotNull();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM spring_session WHERE principal_name = ?", Integer.class, email)).isPositive();
+        // Export is the first HTTP request after login, using its already-persisted session.
+        return get("/api/account/export").param("ownerId", userB.toString()).cookie(cookie);
+    }
+
+    private JsonNode exportJson(Long owner) throws Exception {
+        var started = mockMvc.perform(exportRequest(owner)).andExpect(request().asyncStarted()).andReturn();
+        var completed = mockMvc.perform(asyncDispatch(started)).andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(header().string("Pragma", "no-cache"))
+                .andExpect(header().string("Content-Disposition", "attachment; filename=\"applyflow-account-export.json\""))
+                .andReturn();
+        return mapper.readTree(completed.getResponse().getContentAsByteArray());
     }
 
     private Long insertUser(String email, String name) {

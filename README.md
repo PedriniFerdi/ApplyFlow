@@ -158,9 +158,16 @@ Application listing supports pagination, status and catalog filters, and control
 - Application, company, custom-technology, and analytics operations derive the owner from the authenticated principal rather than client-supplied ownership fields.
 - Authenticated requests also verify the immutable account ID still exists; an old session cannot access a new account registered with the same email.
 - Owned mutations and token consumption lock the account before dependent records, coordinating concurrent changes without relying on email identity.
-- These lifecycle guards do not yet expose account export or deletion endpoints.
+- Account export is available through `GET /api/account/export`; deletion is not exposed yet.
 - Credentialed CORS uses configured exact origins, session cookies are HTTP-only, and the production profile requires secure transport with HSTS.
 - Authentication and job-offer extraction have application-level rate limits. URL extraction also has configured redirect, timeout, response-size, and concurrency limits.
+
+### Account data export
+
+Authenticated `GET /api/account/export` downloads `applyflow-account-export.json` without a CSRF token (read-only GET).
+Version 1 includes profile, all owned companies/applications/history/technologies, application–technology links, and referenced shared technology/source metadata. Salary amounts are exact decimal strings; credentials, provider IDs, tokens, sessions, and security counters are excluded.
+The response uses `no-store` and one read-only repeatable-read database snapshot, streamed in 200-row cursor batches without a total-row cap or persistent export file. Only a fully written document has `complete: true`; discard interrupted/invalid JSON. Changes committed after the snapshot are not included, and an already-started download cannot be recalled.
+`ACCOUNT_EXPORT_RATE_LIMIT` defaults to 3 per existing 15-minute rate window, independently per account and trusted client IP; excess requests return `429` with `Retry-After`. The database transaction has a 30-second timeout; slow clients still consume streaming resources. No frontend download control is provided yet.
 
 ### Trusted proxy contract
 

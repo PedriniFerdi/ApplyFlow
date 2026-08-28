@@ -30,6 +30,7 @@ public class AuthenticationRateLimiter {
     private final int recoveryLimit;
     private final int resetLimit;
     private final int extractionLimit;
+    private final int exportLimit;
 
     public AuthenticationRateLimiter(
             JdbcTemplate jdbcTemplate,
@@ -39,7 +40,8 @@ public class AuthenticationRateLimiter {
             @Value("${app.security.rate-limit.register-limit}") int registerLimit,
             @Value("${app.security.rate-limit.recovery-limit}") int recoveryLimit,
             @Value("${app.security.rate-limit.reset-limit}") int resetLimit,
-            @Value("${app.security.rate-limit.job-offer-extraction-limit:20}") int extractionLimit
+            @Value("${app.security.rate-limit.job-offer-extraction-limit:20}") int extractionLimit,
+            @Value("${app.security.rate-limit.account-export-limit:3}") int exportLimit
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.clock = clock;
@@ -49,6 +51,7 @@ public class AuthenticationRateLimiter {
         this.recoveryLimit = recoveryLimit;
         this.resetLimit = resetLimit;
         this.extractionLimit = extractionLimit;
+        this.exportLimit = exportLimit;
     }
 
     public void checkLogin(String ipAddress, String email) {
@@ -73,6 +76,10 @@ public class AuthenticationRateLimiter {
 
     public void checkJobOfferExtraction(String ipAddress, Long userId) {
         check("job-offer-extraction", ipAddress, String.valueOf(userId), extractionLimit);
+    }
+
+    public void checkAccountExport(String ipAddress, Long userId) {
+        check("account-export", ipAddress, String.valueOf(userId), exportLimit);
     }
 
     private void check(String action, String ipAddress, String identity, int limit) {

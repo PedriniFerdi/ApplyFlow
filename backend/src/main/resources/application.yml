@@ -96,6 +96,7 @@ app:
       recovery-limit: ${AUTH_RECOVERY_RATE_LIMIT:5}
       reset-limit: ${AUTH_RESET_RATE_LIMIT:8}
       job-offer-extraction-limit: ${JOB_OFFER_EXTRACTION_RATE_LIMIT:20}
+      account-export-limit: ${ACCOUNT_EXPORT_RATE_LIMIT:3}
   job-offer-extraction:
     connect-timeout: ${JOB_OFFER_CONNECT_TIMEOUT:2s}
     read-timeout: ${JOB_OFFER_READ_TIMEOUT:3s}
