@@ -255,12 +255,13 @@ public class JobApplicationService {
     }
 
     private JobApplication findDetailedForUpdate(Long ownerId, Long id) {
+        requireOwner(ownerId);
         return applicationRepository.findDetailedForUpdateByIdAndOwnerId(id, ownerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Job application not found"));
     }
 
     private UserAccount requireOwner(Long ownerId) {
-        return userRepository.findById(ownerId)
+        return userRepository.findByIdForUpdate(ownerId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
     }
 

@@ -36,6 +36,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.ResultMatcher;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -48,6 +49,8 @@ import com.applyflow.service.AccountEmailSender;
 import com.applyflow.service.AccountEmailOutboxProcessor;
 import com.applyflow.service.AccountEmailOutboxService;
 import com.applyflow.service.OidcAccountService;
+import com.applyflow.service.AccountTokenService;
+import com.applyflow.exception.BusinessRuleException;
 
 import jakarta.servlet.http.Cookie;
 
@@ -90,6 +93,12 @@ class AuthenticationIntegrationTest {
 
     @Autowired
     private UserAccountRepository userRepository;
+
+    @Autowired
+    private AccountTokenService tokenService;
+
+    @Autowired
+    private TransactionTemplate transactions;
 
     @BeforeEach
     void cleanDatabase() {
@@ -410,6 +419,61 @@ class AuthenticationIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isBadRequest()).andExpect(jsonPath("$.title").value("Invalid request"));
         mockMvc.perform(put("/api/auth/password").with(csrf()).cookie(session)
                         .contentType(MediaType.APPLICATION_JSON).content(body.replace(boundaryPassword + "x", boundaryPassword))).andExpect(status().isNoContent());
+    }
+
+    @Test
+    void rejectsPersistedSessionsForDeletedIdsEvenAfterEmailReuse() throws Exception {
+        registerAndVerify("Old account", "reused@example.com", "old-password-value");
+        Cookie oldSession = mockMvc.perform(login("reused@example.com", "old-password-value", false))
+                .andExpect(status().isOk()).andReturn().getResponse().getCookie("APPLYFLOW_SESSION");
+        String oldSessionPrimaryId = jdbcTemplate.queryForObject(
+                "SELECT primary_id FROM spring_session WHERE principal_name = ?", String.class, "reused@example.com");
+        Long oldId = userRepository.findByEmailIgnoreCase("reused@example.com").orElseThrow().getId();
+        jdbcTemplate.update("DELETE FROM users WHERE id = ?", oldId);
+        UserAccount replacement = oidcAccountService.reconcile("replacement-subject", "reused@example.com", true, "New account");
+        assertThat(replacement.getId()).isNotEqualTo(oldId);
+
+        mockMvc.perform(get("/api/sources").cookie(oldSession)).andExpect(status().isUnauthorized());
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM spring_session WHERE primary_id = ?", Integer.class, oldSessionPrimaryId)).isZero();
+        assertThat(userRepository.findById(replacement.getId())).isPresent();
+        mockMvc.perform(get("/api/auth/me").cookie(oldSession)).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void tokenConsumptionChecksOwnerAndPurposeAndLocksUserBeforeToken() throws Exception {
+        mockMvc.perform(register("Token owner", "token-owner@example.com", "a-secure-password"))
+                .andExpect(status().isAccepted());
+        deliverEmails();
+        String token = emailSender.onlyMessage().rawToken();
+        Long owner = userRepository.findByEmailIgnoreCase("token-owner@example.com").orElseThrow().getId();
+        Long other = oidcAccountService.reconcile("other-subject", "other@example.com", true, "Other").getId();
+        transactions.executeWithoutResult(status -> {
+            assertThatThrownBy(() -> tokenService.consumeForUser(token, AccountTokenPurpose.EMAIL_VERIFICATION, other))
+                    .isInstanceOf(BusinessRuleException.class);
+            assertThatThrownBy(() -> tokenService.consumeForUser(token, AccountTokenPurpose.PASSWORD_RESET, owner))
+                    .isInstanceOf(BusinessRuleException.class);
+        });
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT consumed_at IS NULL FROM account_tokens WHERE user_id = ?", Boolean.class, owner)).isTrue();
+
+        AccountLockTestSupport.whileUserLocked(jdbcTemplate, transactions, owner,
+                () -> tokenService.consume(token, AccountTokenPurpose.EMAIL_VERIFICATION),
+                () -> jdbcTemplate.queryForObject(
+                        "SELECT id FROM account_tokens WHERE user_id = ? FOR UPDATE NOWAIT", Long.class, owner));
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT consumed_at IS NOT NULL FROM account_tokens WHERE user_id = ?", Boolean.class, owner)).isTrue();
+        transactions.executeWithoutResult(status -> assertThatThrownBy(
+                () -> tokenService.consumeForUser(token, AccountTokenPurpose.EMAIL_VERIFICATION, owner))
+                .isInstanceOf(BusinessRuleException.class));
+    }
+
+    @Test
+    void existingGoogleReconciliationWaitsForTheCurrentAccountLock() throws Exception {
+        UserAccount account = oidcAccountService.reconcile("locked-subject", "google-lock@example.com", true, "Google");
+        UserAccount reconciled = AccountLockTestSupport.whileUserLocked(jdbcTemplate, transactions, account.getId(),
+                () -> oidcAccountService.reconcile("locked-subject", "google-lock@example.com", true, "Google"), () -> { });
+        assertThat(reconciled.getId()).isEqualTo(account.getId());
     }
 
     private void registerAndVerify(String name, String email, String password) throws Exception {

@@ -18,6 +18,10 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, Long> 
     Optional<UserAccount> findByGoogleSubject(String googleSubject);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select user from UserAccount user where user.googleSubject = :subject")
+    Optional<UserAccount> findByGoogleSubjectForUpdate(@Param("subject") String googleSubject);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select user from UserAccount user where user.id = :id")
     Optional<UserAccount> findByIdForUpdate(@Param("id") Long id);
 

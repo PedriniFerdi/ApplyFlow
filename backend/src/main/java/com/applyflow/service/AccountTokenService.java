@@ -21,6 +21,7 @@ import com.applyflow.entity.AccountTokenPurpose;
 import com.applyflow.entity.UserAccount;
 import com.applyflow.exception.BusinessRuleException;
 import com.applyflow.repository.AccountTokenRepository;
+import com.applyflow.repository.UserAccountRepository;
 
 @Service
 public class AccountTokenService {
@@ -29,15 +30,18 @@ public class AccountTokenService {
     private static final Base64.Encoder URL_ENCODER = Base64.getUrlEncoder().withoutPadding();
 
     private final AccountTokenRepository tokenRepository;
+    private final UserAccountRepository userRepository;
     private final Clock clock;
     private final Duration cooldown;
 
     public AccountTokenService(
             AccountTokenRepository tokenRepository,
+            UserAccountRepository userRepository,
             Clock clock,
             @Value("${app.auth.token-cooldown}") Duration cooldown
     ) {
         this.tokenRepository = tokenRepository;
+        this.userRepository = userRepository;
         this.clock = clock;
         this.cooldown = cooldown;
     }
@@ -62,8 +66,19 @@ public class AccountTokenService {
     }
 
     public AccountToken consume(String rawToken, Set<AccountTokenPurpose> allowedPurposes) {
+        Long ownerId = tokenRepository.findOwnerIdByTokenHash(hash(rawToken)).orElseThrow(this::invalidToken);
+        return consumeForUser(rawToken, allowedPurposes, ownerId);
+    }
+
+    public AccountToken consumeForUser(String rawToken, AccountTokenPurpose purpose, Long userId) {
+        return consumeForUser(rawToken, EnumSet.of(purpose), userId);
+    }
+
+    private AccountToken consumeForUser(String rawToken, Set<AccountTokenPurpose> allowedPurposes, Long userId) {
+        // All account mutations lock the user before tokens or owned records.
+        userRepository.findByIdForUpdate(userId).orElseThrow(this::invalidToken);
         Instant now = clock.instant();
-        AccountToken token = tokenRepository.findByTokenHash(hash(rawToken))
+        AccountToken token = tokenRepository.findByTokenHashAndUserId(hash(rawToken), userId)
                 .orElseThrow(this::invalidToken);
         if (!allowedPurposes.contains(token.getPurpose()) || !token.isUsableAt(now)) {
             throw invalidToken();

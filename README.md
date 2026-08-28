@@ -156,6 +156,9 @@ Application listing supports pagination, status and catalog filters, and control
 - Passwords use Spring Security's delegating encoder; verification and reset tokens are one-time, expiring values stored as hashes.
 - Account emails use a durable encrypted outbox with retry and claim leasing.
 - Application, company, custom-technology, and analytics operations derive the owner from the authenticated principal rather than client-supplied ownership fields.
+- Authenticated requests also verify the immutable account ID still exists; an old session cannot access a new account registered with the same email.
+- Owned mutations and token consumption lock the account before dependent records, coordinating concurrent changes without relying on email identity.
+- These lifecycle guards do not yet expose account export or deletion endpoints.
 - Credentialed CORS uses configured exact origins, session cookies are HTTP-only, and the production profile requires secure transport with HSTS.
 - Authentication and job-offer extraction have application-level rate limits. URL extraction also has configured redirect, timeout, response-size, and concurrency limits.
 

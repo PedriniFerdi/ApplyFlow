@@ -17,6 +17,7 @@ import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository;
 import org.springframework.session.security.web.authentication.SpringSessionRememberMeServices;
@@ -27,6 +28,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import com.applyflow.dto.auth.CurrentUserResponse;
 import com.applyflow.security.AuthenticatedUser;
+import com.applyflow.repository.UserAccountRepository;
 import com.applyflow.service.ApplyFlowOidcUserService;
 import com.applyflow.service.AuthenticationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -61,7 +63,8 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(
             HttpSecurity http,
-            SpringSessionRememberMeServices rememberMeServices
+            SpringSessionRememberMeServices rememberMeServices,
+            UserAccountRepository userRepository
     ) throws Exception {
         HttpSessionCsrfTokenRepository csrfRepository = new HttpSessionCsrfTokenRepository();
         CsrfTokenRequestAttributeHandler csrfHandler = new CsrfTokenRequestAttributeHandler();
@@ -73,6 +76,7 @@ public class SecurityConfig {
                         .csrfTokenRepository(csrfRepository)
                         .csrfTokenRequestHandler(csrfHandler))
                 .addFilterBefore(authenticationRateLimitFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(new ActiveAccountFilter(userRepository), AuthorizationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(

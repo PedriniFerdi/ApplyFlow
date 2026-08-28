@@ -72,13 +72,13 @@ public class CatalogService {
 
     @Transactional
     public CatalogItemResponse createTechnology(Long ownerId, CreateTechnologyRequest request) {
+        UserAccount owner = userRepository.findByIdForUpdate(ownerId)
+                .orElseThrow(() -> new com.applyflow.exception.ResourceNotFoundException("User not found"));
         String name = validator.normalizeRequired(request.name());
         if (technologyRepository.findVisibleByNameIgnoreCase(ownerId, name).isPresent()) {
             throw new ConflictException("Technology already exists");
         }
         try {
-            UserAccount owner = userRepository.findById(ownerId)
-                    .orElseThrow(() -> new com.applyflow.exception.ResourceNotFoundException("User not found"));
             Technology saved = technologyRepository.saveAndFlush(new Technology(owner, name));
             return new CatalogItemResponse(saved.getId(), saved.getName());
         } catch (DataIntegrityViolationException exception) {
