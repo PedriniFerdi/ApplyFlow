@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { ApiProblem } from '@/lib/api-client'
+import { ApiProblem, clearCsrfToken } from '@/lib/api-client'
 import type { CurrentUser } from '@/types/api'
 import { getCurrentUser, signIn, signOut } from './api'
 import { AuthContext, authQueryKey } from './auth-context'
@@ -54,6 +54,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [setIdentity])
 
   const { refetch } = currentUser
+  const completeAccountDeletion = useCallback(async () => {
+    await queryClient.cancelQueries()
+    queryClient.setQueryData(authQueryKey, null)
+    const sessionQuery = queryClient.getQueryCache().find({ queryKey: authQueryKey, exact: true })
+    queryClient.removeQueries({ predicate: (query) => query !== sessionQuery })
+    queryClient.getMutationCache().clear()
+    clearCsrfToken()
+    setIsRetrying(false)
+    try {
+      sessionStorage.removeItem('applyflow:oauth-return-path')
+    } catch {
+      // In-memory account cleanup must still finish when storage is unavailable.
+    }
+  }, [queryClient])
+
   const retrySession = useCallback(async () => {
     if (isRetrying) return
     setIsRetrying(true)
@@ -84,6 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     ...session,
     login,
     logout,
+    completeAccountDeletion,
     retrySession,
   }}>{children}</AuthContext.Provider>
 }

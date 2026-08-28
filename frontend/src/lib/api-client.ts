@@ -6,12 +6,19 @@ const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
 let csrfToken: { token: string; headerName: string } | null = null
 let csrfPromise: Promise<{ token: string; headerName: string }> | null = null
+let csrfGeneration = 0
+
+export const sessionGeneration = () => csrfGeneration
+export function requireSession(generation: number | undefined) {
+  if (generation !== csrfGeneration) throw new DOMException('Session changed', 'AbortError')
+}
 
 export function backendUrl(path: string) {
   return `${BACKEND_BASE_URL}${path}`
 }
 
 export function clearCsrfToken() {
+  csrfGeneration += 1
   csrfToken = null
   csrfPromise = null
 }
@@ -38,19 +45,23 @@ interface ApiRequestOptions extends Omit<RequestInit, 'body'> {
 export async function prefetchCsrfToken() {
   if (csrfToken) return csrfToken
   if (!csrfPromise) {
+    const generation = csrfGeneration
     csrfPromise = fetch(`${API_BASE_URL}/auth/csrf`, {
       credentials: 'include',
       headers: { Accept: 'application/json' },
     }).then(async (response) => {
       if (!response.ok) throw new ApiProblem({ detail: 'Unable to establish a secure session.' }, response.status)
-      csrfToken = await response.json() as { token: string; headerName: string }
-      return csrfToken
-    }).finally(() => { csrfPromise = null })
+      const token = await response.json() as { token: string; headerName: string }
+      requireSession(generation)
+      csrfToken = token
+      return token
+    }).finally(() => { if (generation === csrfGeneration) csrfPromise = null })
   }
   return csrfPromise
 }
 
 export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
+  const generation = sessionGeneration()
   const { body, form, ...requestOptions } = options
   const method = (options.method ?? 'GET').toUpperCase()
   const headers = new Headers(options.headers)
@@ -64,6 +75,7 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
       const csrf = await prefetchCsrfToken()
       headers.set(csrf.headerName, csrf.token)
     }
+    requireSession(generation)
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...requestOptions,
       method,
@@ -76,6 +88,7 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
     throw new ApiProblem({ title: 'Network error', detail: 'Unable to reach the ApplyFlow API.' }, 0)
   }
 
+  requireSession(generation)
   if (!response.ok) {
     let problem: ProblemDetails = {}
     try {
@@ -83,6 +96,7 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
     } catch {
       problem = { detail: `The server returned status ${response.status}.` }
     }
+    requireSession(generation)
     if (response.status === 401 && path !== '/auth/me') {
       window.dispatchEvent(new Event('applyflow:unauthorized'))
     }
@@ -90,5 +104,7 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
   }
 
   if (response.status === 204) return undefined as T
-  return (await response.json()) as T
+  const data = await response.json() as T
+  requireSession(generation)
+  return data
 }

@@ -10,6 +10,7 @@ export type AuthSessionState =
 interface AuthActions {
   login: (email: string, password: string, rememberMe: boolean) => Promise<CurrentUser>
   logout: () => Promise<void>
+  completeAccountDeletion: () => Promise<void>
   retrySession: () => Promise<void>
 }
 

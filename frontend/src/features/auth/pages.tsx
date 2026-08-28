@@ -6,6 +6,7 @@ import landscape from '@/assets/applyflow-landscape.png'
 import { Button, FieldError, Input, Label } from '@/components/ui'
 import { ApiProblem } from '@/lib/api-client'
 import { useAuth } from './auth-context'
+import { AccountLifecycleSettings } from './AccountLifecycleSettings'
 import {
   changePassword,
   forgotPassword,
@@ -203,7 +204,7 @@ export function SignUpPage() {
 
   if (user) return <Navigate to="/applications" replace />
   return <AuthLayout eyebrow="Your account" title="Create your space" description="Build a secure, private home for every application and decision in your search.">
-    {mutation.isSuccess ? <div className="space-y-5"><SuccessMessage title="Check your inbox"><p>We sent the next step to <strong className="text-foreground">{values.email}</strong>. Verify your email before signing in.</p></SuccessMessage><VerificationResendForm initialEmail={values.email} /><Link to="/sign-in" className="inline-block font-semibold text-foreground underline-offset-4 hover:underline">Back to sign in</Link></div> : <>
+    {mutation.isSuccess ? <div className="space-y-5"><SuccessMessage title="Check your inbox"><p>If eligible, an email will arrive at <strong className="text-foreground">{values.email}</strong>. Queue acceptance does not guarantee delivery. Verify your email before signing in.</p></SuccessMessage><VerificationResendForm initialEmail={values.email} /><Link to="/sign-in" className="inline-block font-semibold text-foreground underline-offset-4 hover:underline">Back to sign in</Link></div> : <>
       <GoogleButton /><Divider />
       <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); if (!mismatch) mutation.mutate() }}>
         <div><Label htmlFor="fullName">Full name</Label><Input id="fullName" autoComplete="name" value={values.fullName} onChange={(event) => set('fullName')(event.target.value)} className="min-h-12" required /></div>
@@ -222,7 +223,7 @@ export function ForgotPasswordPage() {
   const [email, setEmail] = useState('')
   const mutation = useMutation({ mutationFn: () => forgotPassword(email) })
   return <AuthLayout eyebrow="Account recovery" title="Reset your password" description="Enter your email. If an eligible account exists, we’ll send a secure, short-lived link.">
-    {mutation.isSuccess ? <SuccessMessage title="Check your inbox"><p>If an eligible account exists for <strong className="text-foreground">{email}</strong>, a recovery link is on its way.</p></SuccessMessage> : <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}>
+    {mutation.isSuccess ? <SuccessMessage title="Check your inbox"><p>If an eligible account exists for <strong className="text-foreground">{email}</strong>, a recovery email may arrive. Queue acceptance does not guarantee delivery.</p></SuccessMessage> : <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); mutation.mutate() }}>
       <div><Label htmlFor="email">Email</Label><Input id="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} className="min-h-12" required /></div>
       <MutationError error={mutation.error} />
       <Button type="submit" disabled={mutation.isPending} className="min-h-12 w-full">{mutation.isPending ? 'Sending…' : 'Send reset link'}</Button>
@@ -238,7 +239,7 @@ export function ResetPasswordPage() {
   const token = searchParams.get('token') ?? ''
   const mismatch = confirmation.length > 0 && password !== confirmation
   const mutation = useMutation({ mutationFn: () => resetPassword({ token, password, passwordConfirmation: confirmation }) })
-  return <AuthLayout eyebrow="Secure link" title="Choose a new password" description="This link can be used once. Your other active sessions will be closed after the change.">
+  return <AuthLayout eyebrow="Secure link" title="Choose a new password" description="This link can be used once. All active sessions will be closed after the reset.">
     {!token ? <MutationError error={new ApiProblem({ detail: 'This password link is missing its token.' }, 400)} /> : mutation.isSuccess ? <SuccessMessage title="Password updated"><p>Your new password is ready.</p><Link to="/sign-in" className="mt-4 inline-block font-semibold text-foreground underline-offset-4 hover:underline">Continue to sign in</Link></SuccessMessage> : <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); if (!mismatch) mutation.mutate() }}>
       <div><Label htmlFor="password">New password</Label><PasswordInput id="password" value={password} onChange={setPassword} autoComplete="new-password" /></div>
       <div><Label htmlFor="confirmation">Confirm new password</Label><PasswordInput id="confirmation" value={confirmation} onChange={setConfirmation} autoComplete="new-password" aria-invalid={mismatch || undefined} aria-describedby={mismatch ? 'confirmation-error' : undefined} /><FieldError id="confirmation-error" message={mismatch ? 'Passwords do not match.' : undefined} /></div>
@@ -306,10 +307,10 @@ export function SecuritySettingsPage() {
   return <div className="mx-auto max-w-[680px] pb-14">
     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Account</p>
     <h1 className="mt-2 text-4xl font-semibold tracking-[-0.045em]">Security</h1>
-    <p className="mt-3 text-sm leading-6 text-muted-foreground">Manage the password attached to {user?.email}.</p>
+    <p className="mt-3 text-sm leading-6 text-muted-foreground">Manage security and account data for {user?.email}.</p>
     <div className="mt-9 rounded-[15px] border p-6 sm:p-8">
       <div className="flex items-center gap-3"><LockKeyhole size={20} aria-hidden="true" /><h2 className="text-lg font-semibold">Password</h2></div>
-      {!hasPassword ? <div className="mt-5"><p className="text-sm leading-6 text-muted-foreground">This account currently signs in with Google. Request a secure email link to add password sign-in.</p><MutationError error={setupMutation.error} />{setupMutation.isSuccess ? <SuccessMessage title="Check your inbox"><p>We sent a password setup link.</p></SuccessMessage> : <Button className="mt-5" onClick={() => setupMutation.mutate()} disabled={setupMutation.isPending}><Mail size={17} aria-hidden="true" />Send password setup link</Button>}</div> : <form className="mt-6 space-y-5" onSubmit={(event: FormEvent) => { event.preventDefault(); if (!mismatch) passwordMutation.mutate() }}>
+      {!hasPassword ? <div className="mt-5"><p className="text-sm leading-6 text-muted-foreground">This account currently signs in with Google. Request a secure email link to add password sign-in.</p><MutationError error={setupMutation.error} />{setupMutation.isSuccess ? <SuccessMessage title="Check your inbox"><p>Your request was accepted. If eligible, a setup email will arrive; delivery is not guaranteed.</p></SuccessMessage> : <Button className="mt-5" onClick={() => setupMutation.mutate()} disabled={setupMutation.isPending}><Mail size={17} aria-hidden="true" />Send password setup link</Button>}</div> : <form className="mt-6 space-y-5" onSubmit={(event: FormEvent) => { event.preventDefault(); if (!mismatch) passwordMutation.mutate() }}>
         <div><Label htmlFor="currentPassword">Current password</Label><PasswordInput id="currentPassword" value={values.currentPassword} onChange={field('currentPassword')} autoComplete="current-password" /></div>
         <div><Label htmlFor="newPassword">New password</Label><PasswordInput id="newPassword" value={values.password} onChange={field('password')} autoComplete="new-password" /></div>
         <div><Label htmlFor="confirmPassword">Confirm new password</Label><PasswordInput id="confirmPassword" value={values.passwordConfirmation} onChange={field('passwordConfirmation')} autoComplete="new-password" aria-invalid={mismatch || undefined} aria-describedby={mismatch ? 'confirmPassword-error' : undefined} /><FieldError id="confirmPassword-error" message={mismatch ? 'Passwords do not match.' : undefined} /></div>
@@ -318,5 +319,6 @@ export function SecuritySettingsPage() {
         <Button type="submit" disabled={passwordMutation.isPending || mismatch}>{passwordMutation.isPending ? 'Saving…' : 'Change password'}</Button>
       </form>}
     </div>
+    <AccountLifecycleSettings />
   </div>
 }

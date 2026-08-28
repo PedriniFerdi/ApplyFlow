@@ -27,6 +27,31 @@ describe('apiRequest', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it('does not restore stale CSRF state after account cleanup while prefetch is pending', async () => {
+    let finish!: (response: Response) => void
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+      .mockResolvedValue(new Response(JSON.stringify({ token: 'new-token', headerName: 'X-CSRF-TOKEN' })))
+    const stale = prefetchCsrfToken()
+    clearCsrfToken()
+    const fresh = prefetchCsrfToken()
+    finish(new Response(JSON.stringify({ token: 'old-token', headerName: 'X-CSRF-TOKEN' })))
+    await expect(stale).rejects.toMatchObject({ name: 'AbortError' })
+    await expect(fresh).resolves.toMatchObject({ token: 'new-token' })
+    await expect(prefetchCsrfToken()).resolves.toMatchObject({ token: 'new-token' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([200, 204, 401])('discards a late %s response after the session boundary changes', async (status) => {
+    let finish!: (response: Response) => void
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+    const unauthorized = vi.spyOn(window, 'dispatchEvent')
+    const pending = apiRequest('/applications/99')
+    clearCsrfToken()
+    finish(new Response(status === 204 ? null : '{}', { status }))
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    expect(unauthorized).not.toHaveBeenCalled()
+  })
+
   it('preserves RFC 7807 detail and field errors', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       status: 400,
