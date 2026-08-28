@@ -169,6 +169,12 @@ Version 1 includes profile, all owned companies/applications/history/technologie
 The response uses `no-store` and one read-only repeatable-read database snapshot, streamed in 200-row cursor batches without a total-row cap or persistent export file. Only a fully written document has `complete: true`; discard interrupted/invalid JSON. Changes committed after the snapshot are not included, and an already-started download cannot be recalled.
 `ACCOUNT_EXPORT_RATE_LIMIT` defaults to 3 per existing 15-minute rate window, independently per account and trusted client IP; excess requests return `429` with `Retry-After`. The database transaction has a 30-second timeout; slow clients still consume streaming resources. No frontend download control is provided yet.
 
+### Internal deletion-proof capability
+
+The backend can issue an account-bound `ACCOUNT_DELETION` confirmation code through the existing encrypted outbox. This capability is internal only: no deletion request/confirmation endpoint or deletion UI is exposed yet.
+It uses the existing 256-bit random token/hash mechanism, one-minute cooldown, and a 15-minute default lifetime (`ACCOUNT_DELETION_TOKEN_TTL`). Email contains a copyable 43-character code and a static Security page link, never a tokenized deletion URL.
+Password and Google-only accounts use the same verified-mailbox confirmation; this is not Google reauthentication or MFA and does not create a password. Callers must derive the account ID from authentication and consume the proof inside the same transaction as the protected action. Requesting or consuming a proof alone does not delete data, and queue acceptance does not guarantee delivery.
+
 ### Trusted proxy contract
 
 Spring forwarded-header rewriting is disabled, so the servlet peer address always identifies the immediate connection. By default, `TRUSTED_PROXY_HEADER_MODE=none` trusts no forwarding header. A deployment behind a proxy must choose exactly one mode (`forwarded` or `x-forwarded-for`) and set `TRUSTED_PROXY_CIDRS` to the explicit CIDRs of every trusted proxy hop. Do not add private, loopback, or provider-wide ranges unless those exact networks are controlled proxy peers. The backend must not be directly reachable around that trusted edge.

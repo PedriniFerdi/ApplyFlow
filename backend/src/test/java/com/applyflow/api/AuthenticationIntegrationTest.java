@@ -19,6 +19,8 @@ import java.util.function.IntFunction;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -50,6 +52,7 @@ import com.applyflow.service.AccountEmailOutboxProcessor;
 import com.applyflow.service.AccountEmailOutboxService;
 import com.applyflow.service.OidcAccountService;
 import com.applyflow.service.AccountTokenService;
+import com.applyflow.service.AccountDeletionProofService;
 import com.applyflow.exception.BusinessRuleException;
 
 import jakarta.servlet.http.Cookie;
@@ -99,6 +102,9 @@ class AuthenticationIntegrationTest {
 
     @Autowired
     private TransactionTemplate transactions;
+
+    @Autowired
+    private AccountDeletionProofService deletionProofs;
 
     @BeforeEach
     void cleanDatabase() {
@@ -474,6 +480,96 @@ class AuthenticationIntegrationTest {
         UserAccount reconciled = AccountLockTestSupport.whileUserLocked(jdbcTemplate, transactions, account.getId(),
                 () -> oidcAccountService.reconcile("locked-subject", "google-lock@example.com", true, "Google"), () -> { });
         assertThat(reconciled.getId()).isEqualTo(account.getId());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void deletionProofUsesTheSameEncryptedMailboxFlowWithoutChangingCredentials(boolean googleOnly) throws Exception {
+        String email = "deletion-proof@example.com";
+        if (googleOnly) {
+            oidcAccountService.reconcile("deletion-google", email, true, "Deletion proof");
+        } else {
+            registerAndVerify("Deletion proof", email, "a-secure-password");
+        }
+        UserAccount user = userRepository.findByEmailIgnoreCase(email).orElseThrow();
+        String passwordHash = user.getPasswordHash();
+        emailSender.clear();
+        deletionProofs.request(user.getId());
+        deletionProofs.request(user.getId());
+        deliverEmails();
+        CapturedEmail first = emailSender.onlyMessage();
+        assertThat(first.email()).isEqualTo(email);
+        assertThat(first.purpose()).isEqualTo(AccountTokenPurpose.ACCOUNT_DELETION);
+        assertThat(first.rawToken()).matches("[A-Za-z0-9_-]{43}");
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT EXTRACT(EPOCH FROM expires_at - created_at)::bigint FROM account_tokens
+                WHERE user_id = ? AND purpose = 'ACCOUNT_DELETION'
+                """, Long.class, user.getId())).isEqualTo(900L);
+        assertThat(jdbcTemplate.queryForObject("SELECT token_hash FROM account_tokens WHERE purpose = 'ACCOUNT_DELETION'", String.class))
+                .matches("[0-9a-f]{64}").isNotEqualTo(first.rawToken());
+        assertThat(jdbcTemplate.queryForObject("SELECT encrypted_token FROM account_email_outbox WHERE purpose = 'ACCOUNT_DELETION'", String.class))
+                .doesNotContain(first.rawToken());
+        assertThatThrownBy(() -> deletionProofs.consume(user.getId(), first.rawToken()))
+                .isInstanceOf(org.springframework.transaction.IllegalTransactionStateException.class);
+
+        jdbcTemplate.update("UPDATE account_tokens SET created_at = CURRENT_TIMESTAMP - INTERVAL '2 minutes' WHERE purpose = 'ACCOUNT_DELETION'");
+        emailSender.clear();
+        deletionProofs.request(user.getId());
+        deliverEmails();
+        String replacement = emailSender.onlyMessage().rawToken();
+        assertThat(replacement).isNotEqualTo(first.rawToken());
+        assertThatThrownBy(() -> consumeDeletionCode(user.getId(), first.rawToken())).isInstanceOf(BusinessRuleException.class);
+        assertThatThrownBy(() -> transactions.executeWithoutResult(status -> {
+            deletionProofs.consume(user.getId(), replacement);
+            throw new IllegalStateException("Synthetic protected-action failure");
+        })).isInstanceOf(IllegalStateException.class);
+        consumeDeletionCode(user.getId(), replacement);
+        assertThatThrownBy(() -> consumeDeletionCode(user.getId(), replacement)).isInstanceOf(BusinessRuleException.class);
+        UserAccount unchanged = userRepository.findById(user.getId()).orElseThrow();
+        assertThat(unchanged.getPasswordHash()).isEqualTo(passwordHash);
+        assertThat(unchanged.hasPassword()).isEqualTo(!googleOnly);
+        assertThat(unchanged.hasGoogle()).isEqualTo(googleOnly);
+    }
+
+    @Test
+    void deletionProofRejectsOtherOwnersPurposesAndExpiredCodes() throws Exception {
+        registerAndVerify("Scoped deletion", "scoped-deletion@example.com", "a-secure-password");
+        Long owner = userRepository.findByEmailIgnoreCase("scoped-deletion@example.com").orElseThrow().getId();
+        Long other = oidcAccountService.reconcile("other-deletion", "other-deletion@example.com", true, "Other").getId();
+        emailSender.clear();
+        mockMvc.perform(post("/api/auth/password/forgot").with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"scoped-deletion@example.com\"}")).andExpect(status().isAccepted());
+        deliverEmails();
+        String passwordToken = emailSender.onlyMessage().rawToken();
+        assertThatThrownBy(() -> consumeDeletionCode(owner, passwordToken)).isInstanceOf(BusinessRuleException.class);
+        emailSender.clear();
+        deletionProofs.request(owner);
+        deliverEmails();
+        String code = emailSender.onlyMessage().rawToken();
+        assertThatThrownBy(() -> consumeDeletionCode(other, code)).isInstanceOf(BusinessRuleException.class);
+        mockMvc.perform(post("/api/auth/email-verification/confirm").with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"token\":\"" + code + "\"}")).andExpect(status().isBadRequest());
+        mockMvc.perform(post("/api/auth/password/reset").with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"token\":\"" + code + "\",\"password\":\"a-new-secure-password\",\"passwordConfirmation\":\"a-new-secure-password\"}"))
+                .andExpect(status().isBadRequest());
+        assertThat(jdbcTemplate.queryForObject("SELECT consumed_at IS NULL FROM account_tokens WHERE purpose = 'ACCOUNT_DELETION'", Boolean.class)).isTrue();
+        jdbcTemplate.update("UPDATE account_tokens SET expires_at = CURRENT_TIMESTAMP - INTERVAL '1 second' WHERE purpose = 'ACCOUNT_DELETION'");
+        assertThatThrownBy(() -> consumeDeletionCode(owner, code)).isInstanceOf(BusinessRuleException.class);
+        assertThat(userRepository.findById(owner)).isPresent();
+    }
+
+    @Test
+    void deletionProofRequiresAnExistingVerifiedAccount() {
+        UserAccount pending = userRepository.saveAndFlush(new UserAccount("Pending", "pending-deletion@example.com", "{noop}unused"));
+        assertThatThrownBy(() -> deletionProofs.request(pending.getId())).isInstanceOf(BusinessRuleException.class);
+        assertThatThrownBy(() -> deletionProofs.request(Long.MAX_VALUE))
+                .isInstanceOf(com.applyflow.exception.ResourceNotFoundException.class);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM account_tokens", Integer.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM account_email_outbox", Integer.class)).isZero();
+    }
+
+    private void consumeDeletionCode(Long owner, String code) {
+        transactions.executeWithoutResult(status -> deletionProofs.consume(owner, code));
     }
 
     private void registerAndVerify(String name, String email, String password) throws Exception {

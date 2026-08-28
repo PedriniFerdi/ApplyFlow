@@ -83,6 +83,7 @@ app:
   auth:
     verification-ttl: ${EMAIL_VERIFICATION_TTL:24h}
     password-token-ttl: ${PASSWORD_TOKEN_TTL:30m}
+    deletion-token-ttl: ${ACCOUNT_DELETION_TOKEN_TTL:15m}
     token-cooldown: ${ACCOUNT_TOKEN_COOLDOWN:1m}
     remember-me: ${REMEMBER_ME_DURATION:30d}
   security:
