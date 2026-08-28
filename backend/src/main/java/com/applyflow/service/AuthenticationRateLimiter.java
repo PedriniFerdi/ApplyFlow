@@ -82,6 +82,22 @@ public class AuthenticationRateLimiter {
         check("account-export", ipAddress, String.valueOf(userId), exportLimit);
     }
 
+    public void checkAccountDeletion(String ipAddress, Long userId, boolean confirmation) {
+        check(confirmation ? "account-deletion-confirm" : "account-deletion-request", ipAddress,
+                String.valueOf(userId), confirmation ? resetLimit : recoveryLimit);
+    }
+
+    public void clearAccount(Long userId, String email) {
+        for (String action : new String[] {"login", "register", "password-recovery", "verification-resend"}) {
+            jdbcTemplate.update("DELETE FROM auth_rate_limits WHERE bucket_key = ?",
+                    action + ":identity:" + hash(normalize(email)));
+        }
+        for (String action : new String[] {"job-offer-extraction", "account-export", "account-deletion-request", "account-deletion-confirm"}) {
+            jdbcTemplate.update("DELETE FROM auth_rate_limits WHERE bucket_key = ?",
+                    action + ":identity:" + hash(String.valueOf(userId)));
+        }
+    }
+
     private void check(String action, String ipAddress, String identity, int limit) {
         consume(action + ":ip:" + hash(normalize(ipAddress)), action, limit);
         if (identity != null && !identity.isBlank()) {

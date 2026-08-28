@@ -47,6 +47,11 @@ import org.testcontainers.utility.DockerImageName;
 
 import com.applyflow.security.AuthenticatedUser;
 import com.applyflow.service.AccountExportService;
+import com.applyflow.service.AccountDeletionService;
+import com.applyflow.service.AccountTokenService;
+import com.applyflow.service.AuthenticationRateLimiter;
+import com.applyflow.repository.UserAccountRepository;
+import com.applyflow.entity.AccountTokenPurpose;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -80,6 +85,18 @@ class OwnershipIsolationIntegrationTest {
 
     @Autowired
     private ObjectMapper mapper;
+
+    @Autowired
+    private AccountDeletionService deletion;
+
+    @Autowired
+    private AccountTokenService tokens;
+
+    @Autowired
+    private UserAccountRepository users;
+
+    @Autowired
+    private AuthenticationRateLimiter rates;
 
     private Long userA;
     private Long userB;
@@ -285,6 +302,101 @@ class OwnershipIsolationIntegrationTest {
                 .andExpect(status().isTooManyRequests()).andExpect(header().exists("Retry-After"));
         mockMvc.perform(exportRequest(userB).header("X-Forwarded-For", "198.51.100.10"))
                 .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void deletionRemovesAllOwnedDataAndIdentityBucketsButPreservesOtherOwnersAndSharedRows() {
+        insertCompany(userB, "Unused company");
+        jdbcTemplate.update("INSERT INTO technologies (owner_id, name) VALUES (?, 'Unused technology')", userB);
+        jdbcTemplate.update("INSERT INTO technologies (owner_id, name) VALUES (?, 'Other private technology')", userA);
+        jdbcTemplate.update("INSERT INTO application_status_history (application_id, status, changed_at) SELECT id, status, CURRENT_TIMESTAMP FROM job_applications");
+        jdbcTemplate.update("INSERT INTO job_application_technologies SELECT id, (SELECT MIN(id) FROM technologies WHERE owner_id IS NULL) FROM job_applications");
+        jdbcTemplate.update("INSERT INTO job_application_technologies VALUES (?, ?)", applicationB, privateTechnologyB);
+        seedIdentityBuckets(userA, "user-a@example.com");
+        var otherBuckets = jdbcTemplate.queryForList("SELECT bucket_key FROM auth_rate_limits WHERE bucket_key LIKE '%:identity:%'", String.class);
+        seedIdentityBuckets(userB, "user-b@example.com");
+        var ipBuckets = jdbcTemplate.queryForList("SELECT * FROM auth_rate_limits WHERE bucket_key LIKE '%:ip:%'");
+        var shared = jdbcTemplate.queryForList("SELECT * FROM technologies WHERE owner_id IS NULL");
+        var sources = jdbcTemplate.queryForList("SELECT * FROM job_sources");
+        var otherApplication = jdbcTemplate.queryForMap("SELECT * FROM job_applications WHERE id = ?", applicationA);
+        String code = deletionCode(userB);
+        deletion.delete(userB, code);
+        for (String table : List.of("job_applications", "companies", "technologies")) {
+            assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE owner_id = ?", Integer.class, userB)).as(table).isZero();
+        }
+        assertThat(jdbcTemplate.queryForList("SELECT * FROM technologies WHERE owner_id IS NULL")).isEqualTo(shared);
+        assertThat(jdbcTemplate.queryForList("SELECT name FROM technologies WHERE owner_id = ?", String.class, userA)).containsExactly("Other private technology");
+        assertThat(jdbcTemplate.queryForList("SELECT * FROM job_sources")).isEqualTo(sources);
+        assertThat(jdbcTemplate.queryForMap("SELECT * FROM job_applications WHERE id = ?", applicationA)).isEqualTo(otherApplication);
+        assertThat(jdbcTemplate.queryForList("SELECT application_id FROM application_status_history", Long.class)).containsExactly(applicationA);
+        assertThat(jdbcTemplate.queryForList("SELECT application_id FROM job_application_technologies", Long.class)).containsExactly(applicationA);
+        assertThat(jdbcTemplate.queryForList("SELECT id FROM users", Long.class)).containsExactly(userA);
+        assertThat(jdbcTemplate.queryForList("SELECT owner_id FROM companies", Long.class)).containsExactly(userA);
+        assertThat(jdbcTemplate.queryForList("SELECT bucket_key FROM auth_rate_limits WHERE bucket_key LIKE '%:identity:%'", String.class))
+                .containsExactlyInAnyOrderElementsOf(otherBuckets);
+        assertThat(jdbcTemplate.queryForList("SELECT * FROM auth_rate_limits WHERE bucket_key LIKE '%:ip:%'")).isEqualTo(ipBuckets);
+    }
+
+    @Test
+    void foreignTechnologyReferenceRollsBackProofDataAndSessionsWithoutLoggingOut() throws Exception {
+        // Legacy/corrupt cross-owner links must fail closed, never delete another owner's application.
+        jdbcTemplate.update("INSERT INTO job_application_technologies VALUES (?, ?)", applicationA, privateTechnologyB);
+        var login = mockMvc.perform(post("/api/auth/login").with(csrf()).contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("email", "user-b@example.com").param("password", "unused")).andExpect(status().isOk()).andReturn();
+        var session = login.getResponse().getCookie("APPLYFLOW_SESSION");
+        var otherSession = mockMvc.perform(post("/api/auth/login").with(csrf()).contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("email", "user-a@example.com").param("password", "unused")).andExpect(status().isOk())
+                .andReturn().getResponse().getCookie("APPLYFLOW_SESSION");
+        String code = deletionCode(userB);
+        mockMvc.perform(post("/api/account/deletion/confirm").cookie(session).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"token\":\"" + code + "\",\"confirmation\":\"DELETE\"}"))
+                .andExpect(status().isConflict());
+        assertThat(jdbcTemplate.queryForObject("SELECT consumed_at IS NULL FROM account_tokens WHERE user_id = ?", Boolean.class, userB)).isTrue();
+        assertThat(jdbcTemplate.queryForList("SELECT id FROM job_applications", Long.class)).containsExactlyInAnyOrder(applicationA, applicationB);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM users", Integer.class)).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM companies WHERE owner_id = ?", Integer.class, userB)).isOne();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM technologies WHERE id = ?", Integer.class, privateTechnologyB)).isOne();
+        mockMvc.perform(get("/api/auth/me").cookie(session)).andExpect(status().isOk());
+        jdbcTemplate.update("DELETE FROM job_application_technologies WHERE application_id = ?", applicationA);
+        assertThatThrownBy(() -> transactions.executeWithoutResult(status -> {
+            deletion.delete(userB, code);
+            throw new IllegalStateException("Synthetic failure after all deletion statements");
+        })).isInstanceOf(IllegalStateException.class);
+        assertThat(jdbcTemplate.queryForObject("SELECT consumed_at IS NULL FROM account_tokens WHERE user_id = ?", Boolean.class, userB)).isTrue();
+        mockMvc.perform(get("/api/auth/me").cookie(session)).andExpect(status().isOk());
+        deletion.delete(userB, code);
+        mockMvc.perform(get("/api/auth/me").cookie(session)).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/auth/me").cookie(otherSession)).andExpect(status().isOk());
+    }
+
+    @Test
+    void deletionWaitsOnAccountBeforeTokenAndIncludesWritesCommittedWhileWaiting() throws Exception {
+        String code = deletionCode(userB);
+        AccountLockTestSupport.whileUserLocked(jdbcTemplate, transactions, userB, () -> {
+            deletion.delete(userB, code);
+            return null;
+        }, () -> {
+            jdbcTemplate.queryForObject("SELECT id FROM account_tokens WHERE user_id = ? FOR UPDATE NOWAIT", Long.class, userB);
+            insertApplication(userB, companyB, sourceId, "Concurrent owned write");
+        });
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM job_applications WHERE owner_id = ?", Integer.class, userB)).isZero();
+        assertThat(users.findById(userB)).isEmpty();
+    }
+
+    private String deletionCode(Long owner) {
+        return transactions.execute(status -> tokens.issue(users.findByIdForUpdate(owner).orElseThrow(),
+                AccountTokenPurpose.ACCOUNT_DELETION, java.time.Duration.ofMinutes(15)).orElseThrow().rawToken());
+    }
+
+    private void seedIdentityBuckets(Long owner, String email) {
+        rates.checkLogin("198.51.100.1", email);
+        rates.checkRegister("198.51.100.1", email);
+        rates.checkPasswordRecovery("198.51.100.1", email);
+        rates.checkVerificationResend("198.51.100.1", email);
+        rates.checkJobOfferExtraction("198.51.100.1", owner);
+        rates.checkAccountExport("198.51.100.1", owner);
+        rates.checkAccountDeletion("198.51.100.1", owner, false);
+        rates.checkAccountDeletion("198.51.100.1", owner, true);
     }
 
     private MockHttpServletRequestBuilder exportRequest(Long owner) throws Exception {
