@@ -3,6 +3,8 @@ package com.applyflow.api;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -54,6 +56,19 @@ import com.applyflow.service.OidcAccountService;
 import com.applyflow.service.AccountTokenService;
 import com.applyflow.service.AccountDeletionProofService;
 import com.applyflow.exception.BusinessRuleException;
+import com.applyflow.security.ApplyFlowOidcPrincipal;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.core.oidc.OidcIdToken;
+import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
+import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.session.Session;
+import org.springframework.session.SessionRepository;
+import org.springframework.session.web.http.CookieSerializer;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 
 import jakarta.servlet.http.Cookie;
 
@@ -105,6 +120,12 @@ class AuthenticationIntegrationTest {
 
     @Autowired
     private AccountDeletionProofService deletionProofs;
+
+    @Autowired
+    private SessionRepository<? extends Session> sessions;
+
+    @Autowired
+    private CookieSerializer sessionCookies;
 
     @BeforeEach
     void cleanDatabase() {
@@ -566,6 +587,120 @@ class AuthenticationIntegrationTest {
                 .isInstanceOf(com.applyflow.exception.ResourceNotFoundException.class);
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM account_tokens", Integer.class)).isZero();
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM account_email_outbox", Integer.class)).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void deletesPasswordAndGoogleAccountsAndEveryPersistedSession(boolean googleOnly) throws Exception {
+        String email = "delete-api@example.com";
+        if (googleOnly) {
+            oidcAccountService.reconcile("delete-api-google", email, true, "Delete API");
+        } else {
+            registerAndVerify("Delete API", email, "a-secure-password");
+        }
+        UserAccount user = userRepository.findByEmailIgnoreCase(email).orElseThrow();
+        Cookie first = deletionSession(user, googleOnly);
+        Cookie second = deletionSession(user, googleOnly);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM spring_session WHERE principal_name = ?", Integer.class, email)).isEqualTo(2);
+        var removedSessions = jdbcTemplate.queryForList("SELECT primary_id FROM spring_session WHERE principal_name = ?", String.class, email);
+        emailSender.clear();
+        String accepted = mockMvc.perform(post("/api/account/deletion/request").cookie(first).with(csrf())
+                        .param("email", "someone-else@example.com").param("userId", "99999"))
+                .andExpect(status().isAccepted()).andExpect(header().string("Cache-Control", "no-store"))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(mockMvc.perform(post("/api/account/deletion/request").cookie(first).with(csrf()))
+                .andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString()).isEqualTo(accepted);
+        deliverEmails();
+        CapturedEmail proof = emailSender.onlyMessage();
+        assertThat(proof.email()).isEqualTo(email);
+        mockMvc.perform(deletionConfirmation(first, proof.rawToken(), "DELETE"))
+                .andExpect(status().isNoContent()).andExpect(cookie().maxAge("APPLYFLOW_SESSION", 0));
+        for (String table : List.of("users", "account_tokens", "account_email_outbox")) {
+            assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class)).as(table).isZero();
+        }
+        assertThat(jdbcTemplate.queryForList("SELECT primary_id FROM spring_session", String.class)).doesNotContainAnyElementsOf(removedSessions);
+        assertThat(jdbcTemplate.queryForList("SELECT session_primary_id FROM spring_session_attributes", String.class)).doesNotContainAnyElementsOf(removedSessions);
+        var replacement = oidcAccountService.reconcile("replacement-api", email, true, "Replacement");
+        assertThat(replacement.getId()).isNotEqualTo(user.getId());
+        mockMvc.perform(get("/api/auth/me").cookie(first)).andExpect(status().isUnauthorized());
+        mockMvc.perform(deletionConfirmation(second, proof.rawToken(), "DELETE")).andExpect(status().isUnauthorized());
+        assertThat(userRepository.findById(replacement.getId())).isPresent();
+    }
+
+    @Test
+    void deletionEndpointsRequireAuthenticationCsrfAndExactBoundedConfirmation() throws Exception {
+        registerAndVerify("Validation", "delete-validation@example.com", "a-secure-password");
+        Cookie session = deletionSession(userRepository.findByEmailIgnoreCase("delete-validation@example.com").orElseThrow(), false);
+        for (String path : List.of("request", "confirm")) {
+            mockMvc.perform(post("/api/account/deletion/" + path).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                    .andExpect(status().isUnauthorized());
+            mockMvc.perform(post("/api/account/deletion/" + path).cookie(session).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                    .andExpect(status().isForbidden());
+        }
+        for (String confirmation : List.of("delete", "DELETE ", "", "DELETE".repeat(20))) {
+            mockMvc.perform(deletionConfirmation(session, "A".repeat(43), confirmation)).andExpect(status().isBadRequest());
+        }
+        mockMvc.perform(deletionConfirmation(session, "A".repeat(44), "DELETE")).andExpect(status().isBadRequest());
+        mockMvc.perform(deletionConfirmation(session, "", "DELETE")).andExpect(status().isBadRequest());
+        assertThat(userRepository.count()).isOne();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"request", "confirm"})
+    void deletionRateLimitsAccountAndTrustedIpIndependently(String operation) throws Exception {
+        registerAndVerify("Limits", "delete-limits@example.com", "a-secure-password");
+        emailSender.clear();
+        registerAndVerify("Other", "delete-other@example.com", "a-secure-password");
+        Cookie owner = deletionSession(userRepository.findByEmailIgnoreCase("delete-limits@example.com").orElseThrow(), false);
+        Cookie other = deletionSession(userRepository.findByEmailIgnoreCase("delete-other@example.com").orElseThrow(), false);
+        int limit = operation.equals("request") ? 5 : 8;
+        for (int attempt = 0; attempt < limit; attempt++) {
+            mockMvc.perform(deletionAttempt(operation, owner)).andExpect(status().is(operation.equals("request") ? 202 : 400));
+        }
+        mockMvc.perform(deletionAttempt(operation, owner).with(remoteAddress("198.51.100.9")))
+                .andExpect(status().isTooManyRequests()).andExpect(header().exists("Retry-After"));
+        mockMvc.perform(deletionAttempt(operation, other).header("X-Forwarded-For", "198.51.100.10"))
+                .andExpect(status().isTooManyRequests());
+    }
+
+    private Cookie deletionSession(UserAccount user, boolean googleOnly) throws Exception {
+        Cookie result;
+        if (googleOnly) {
+            var token = new OidcIdToken("test-id-token", java.time.Instant.now(), java.time.Instant.now().plusSeconds(300),
+                    java.util.Map.of("sub", user.getGoogleSubject()));
+            var delegate = new DefaultOidcUser(List.of(new SimpleGrantedAuthority("ROLE_USER")), token);
+            var principal = new ApplyFlowOidcPrincipal(delegate, user);
+            var context = SecurityContextHolder.createEmptyContext();
+            context.setAuthentication(new OAuth2AuthenticationToken(principal, principal.getAuthorities(), "google"));
+            String sessionId = persistSecurityContext(sessions, context);
+            var response = new MockHttpServletResponse();
+            sessionCookies.writeCookieValue(new CookieSerializer.CookieValue(new MockHttpServletRequest(), response, sessionId));
+            result = response.getCookie("APPLYFLOW_SESSION");
+        } else {
+            result = mockMvc.perform(login(user.getEmail(), "a-secure-password", false)).andExpect(status().isOk())
+                    .andReturn().getResponse().getCookie("APPLYFLOW_SESSION");
+        }
+        assertThat(result).isNotNull();
+        mockMvc.perform(get("/api/auth/me").cookie(result)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value(user.getEmail()));
+        return result;
+    }
+
+    private <S extends Session> String persistSecurityContext(SessionRepository<S> repository, SecurityContext context) {
+        S session = repository.createSession();
+        session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, context);
+        repository.save(session);
+        return session.getId();
+    }
+
+    private MockHttpServletRequestBuilder deletionAttempt(String operation, Cookie session) {
+        return operation.equals("request") ? post("/api/account/deletion/request").cookie(session).with(csrf())
+                : deletionConfirmation(session, "A".repeat(43), "DELETE");
+    }
+
+    private MockHttpServletRequestBuilder deletionConfirmation(Cookie session, String token, String confirmation) {
+        return post("/api/account/deletion/confirm").cookie(session).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"token\":\"" + token + "\",\"confirmation\":\"" + confirmation + "\"}");
     }
 
     private void consumeDeletionCode(Long owner, String code) {
