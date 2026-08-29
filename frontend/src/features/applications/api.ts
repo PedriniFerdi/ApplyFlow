@@ -1,6 +1,6 @@
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { analyticsKeys } from '@/features/analytics/api'
-import { apiRequest, prefetchCsrfToken } from '@/lib/api-client'
+import { apiRequest, prefetchCsrfToken, requireSession, sessionGeneration } from '@/lib/api-client'
 import type { ApplicationListParams, ApplicationStatus, CatalogItem, ChangeStatusRequest, Company, CreateApplicationRequest, JobApplicationDetail, JobApplicationPage, JobOfferExtraction, UpdateApplicationRequest } from '@/types/api'
 import type { TrackerGroup } from './model'
 
@@ -99,30 +99,42 @@ function useApplicationInvalidation() {
 
 export function useCreateApplication() {
   const invalidate = useApplicationInvalidation()
-  return useMutation({ mutationFn: createApplication, onSuccess: invalidate })
+  return useSessionMutation(createApplication, invalidate)
 }
 
 export function useUpdateApplication() {
   const invalidate = useApplicationInvalidation()
-  return useMutation({ mutationFn: updateApplication, onSuccess: invalidate })
+  return useSessionMutation(updateApplication, invalidate)
 }
 
 export function useChangeStatus() {
   const invalidate = useApplicationInvalidation()
-  return useMutation({ mutationFn: changeApplicationStatus, onSuccess: invalidate })
+  return useSessionMutation(changeApplicationStatus, invalidate)
 }
 
 export function useDeleteApplication() {
   const client = useQueryClient()
-  return useMutation({ mutationFn: deleteApplication, onSuccess: async (_, id) => {
+  return useSessionMutation(deleteApplication, async (_, id) => {
     client.removeQueries({ queryKey: applicationKeys.detail(id) })
     await invalidateApplicationData(client)
-  } })
+  })
 }
 
 export function useCreateTechnology() {
   const client = useQueryClient()
-  return useMutation({ mutationFn: createTechnology, onSuccess: (item) => {
+  return useSessionMutation(createTechnology, (item) => {
     client.setQueryData<CatalogItem[]>(catalogKeys.technologies, (current = []) => [...current.filter(({ id }) => id !== item.id), item].sort((a, b) => a.name.localeCompare(b.name)))
-  } })
+  })
+}
+
+function useSessionMutation<T, V>(mutationFn: (variables: V) => Promise<T>, onSuccess: (data: T, variables: V) => unknown) {
+  return useMutation({
+    mutationFn,
+    onMutate: sessionGeneration,
+    onSuccess: async (data, variables, generation) => {
+      requireSession(generation)
+      await onSuccess(data, variables)
+      requireSession(generation)
+    },
+  })
 }
