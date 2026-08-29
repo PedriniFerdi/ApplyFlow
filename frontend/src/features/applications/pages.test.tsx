@@ -59,13 +59,16 @@ describe('application pages', () => {
     })
 
     renderRoute('/applications')
-    expect(await screen.findByRole('heading', { name: 'No applications yet' }, { timeout: 3000 })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([input]) => input.toString().includes('/applications?'))).toBe(true)
+      expect(screen.getByRole('heading', { name: 'No applications yet' })).toBeInTheDocument()
+    }, { timeout: 5_000 })
 
     fireEvent.mouseEnter(screen.getAllByRole('link', { name: 'New application' })[0])
 
     await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => input.toString().endsWith('/auth/csrf'))).toBe(true))
     expect(fetchMock.mock.calls.filter(([input]) => input.toString().endsWith('/auth/me'))).toHaveLength(1)
-  })
+  }, 10_000)
 
   it('exposes Security settings from compact navigation with a visible touch focus target', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {

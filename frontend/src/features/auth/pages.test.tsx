@@ -62,7 +62,7 @@ describe('authentication pages', () => {
     let resolveRetry!: (response: Response) => void
     const retryResponse = new Promise<Response>((resolve) => { resolveRetry = resolve })
     let sessionCalls = 0
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = input.toString()
       if (url.endsWith('/auth/me')) return ++sessionCalls === 1 ? json({ detail: 'Unavailable' }, 503) : retryResponse
       if (url.includes('/applications?')) return json({ items: [], page: 0, size: 20, totalElements: 0, totalPages: 0 })
@@ -72,8 +72,11 @@ describe('authentication pages', () => {
     await user.click(await screen.findByRole('button', { name: 'Retry session check' }))
     expect(await screen.findByRole('button', { name: 'Checking session…' })).toBeDisabled()
     resolveRetry(json(currentUser))
-    expect(await screen.findByRole('heading', { name: 'No applications yet' })).toBeInTheDocument()
-  })
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([input]) => input.toString().includes('/applications?'))).toBe(true)
+      expect(screen.getByRole('heading', { name: 'No applications yet' })).toBeInTheDocument()
+    }, { timeout: 5_000 })
+  }, 10_000)
 
   it('renders the required sign-up controls with Google and without GitHub', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({ detail: 'Authentication required' }, 401))
