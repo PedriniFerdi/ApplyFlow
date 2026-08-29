@@ -48,6 +48,7 @@ jobs:
         run: npm run check:browser-env
         env:
           VITE_BACKEND_BASE_URL: https://applyflow-public-canary.invalid
+          VITE_WU51_BLOCK_PROBE: controlled-red-proof
 
       - name: Build production bundle
         run: npm run build
