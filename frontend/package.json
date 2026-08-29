@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "check:browser-env": "node scripts/verify-browser-env.mjs allowlist",
+    "check:bundle-secrets": "node scripts/verify-browser-env.mjs bundle",
     "lint": "oxlint",
     "test": "vitest",
     "preview": "vite preview"

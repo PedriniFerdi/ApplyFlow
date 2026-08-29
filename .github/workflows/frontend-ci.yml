@@ -44,5 +44,19 @@ jobs:
       - name: Run lint
         run: npm run lint
 
+      - name: Validate browser environment allowlist
+        run: npm run check:browser-env
+        env:
+          VITE_BACKEND_BASE_URL: https://applyflow-public-canary.invalid
+
       - name: Build production bundle
         run: npm run build
+        env:
+          VITE_BACKEND_BASE_URL: https://applyflow-public-canary.invalid
+          APPLYFLOW_PRIVATE_CANARY: applyflow-private-canary-must-not-ship
+
+      - name: Verify production bundle secrecy
+        run: npm run check:bundle-secrets
+        env:
+          VITE_BACKEND_BASE_URL: https://applyflow-public-canary.invalid
+          APPLYFLOW_PRIVATE_CANARY: applyflow-private-canary-must-not-ship
