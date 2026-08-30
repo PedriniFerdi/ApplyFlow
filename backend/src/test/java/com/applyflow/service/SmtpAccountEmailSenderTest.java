@@ -28,7 +28,7 @@ class SmtpAccountEmailSenderTest {
         when(mail.createMimeMessage()).thenReturn(message);
         String code = "A".repeat(43);
         UUID deliveryId = UUID.randomUUID();
-        new SmtpAccountEmailSender(mail, true, "sender@example.com", "https://applyflow.example/")
+        new SmtpAccountEmailSender(mail, true, "sender@example.com", "https://applyflow.example/", "mail.example.com")
                 .sendAccountLink("owner@example.com", "Owner", purpose, code, deliveryId);
         verify(mail).send(message);
         String body = (String) message.getContent();
@@ -41,6 +41,7 @@ class SmtpAccountEmailSenderTest {
                 .containsExactly("https://applyflow.example" + path);
         assertThat(body.split(Pattern.quote(code), -1)).hasSize(2);
         assertThat(message.getHeader("X-ApplyFlow-Delivery-Id", null)).isEqualTo(deliveryId.toString());
+        assertThat(message.getHeader("Message-ID", null)).isEqualTo("<applyflow-" + deliveryId + "@mail.example.com>");
         if (purpose == AccountTokenPurpose.ACCOUNT_DELETION) {
             assertThat(message.getSubject()).isEqualTo("Confirm deletion of your ApplyFlow account");
             assertThat(body).contains("Sign in to the same ApplyFlow account", "\n" + code + "\n",
