@@ -215,3 +215,6 @@ The repository provides a strong application foundation, not a turnkey productio
 5. Deploy the frontend and backend independently and set `VITE_BACKEND_BASE_URL` to the public backend origin at build time.
 
 The local Compose file is for development only; it does not define a production topology.
+
+The provider-neutral [production release contract](docs/production-release.md) lists required environment inputs,
+startup guards, migration-before-traffic sequencing, rollback gates, and the stable outbox-key lifecycle.

@@ -18,17 +18,20 @@ public class SmtpAccountEmailSender implements AccountEmailSender {
     private final boolean deliveryEnabled;
     private final String from;
     private final String frontendUrl;
+    private final String messageIdDomain;
 
     public SmtpAccountEmailSender(
             JavaMailSender mailSender,
             @Value("${app.mail.delivery-enabled}") boolean deliveryEnabled,
             @Value("${app.mail.from}") String from,
-            @Value("${app.frontend-url}") String frontendUrl
+            @Value("${app.frontend-url}") String frontendUrl,
+            @Value("${app.mail.message-id-domain}") String messageIdDomain
     ) {
         this.mailSender = mailSender;
         this.deliveryEnabled = deliveryEnabled;
         this.from = from;
         this.frontendUrl = frontendUrl.replaceAll("/$", "");
+        this.messageIdDomain = messageIdDomain;
     }
 
     @Override
@@ -44,7 +47,7 @@ public class SmtpAccountEmailSender implements AccountEmailSender {
             helper.setTo(email);
             helper.setSubject(subject(purpose));
             helper.setText(body(fullName, purpose, rawToken), false);
-            message.setHeader("Message-ID", "<applyflow-" + deliveryId + "@applyflow.local>");
+            message.setHeader("Message-ID", "<applyflow-" + deliveryId + "@" + messageIdDomain + ">");
             message.setHeader("X-ApplyFlow-Delivery-Id", deliveryId.toString());
             mailSender.send(message);
         } catch (jakarta.mail.MessagingException exception) {
